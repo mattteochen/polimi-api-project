@@ -130,10 +130,12 @@ typedef struct S_TRIE
 {
   struct S_TRIE  *childs[256];  /* possible childs based on ACII, active status signaled by non zero pointer */
   void(*add_node)(struct S_TRIE*, MEMORY_BLOCK*, const _uc);
-  void(*add_word)(struct S_TRIE*, MEMORY_BLOCK*, const _uc*, size_t index);
+  void(*add_word)(struct S_TRIE*, MEMORY_BLOCK*, const _uc*, size_t, size_t);
 } TRIE;
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
+static void f_add_word_trie(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc *key, const size_t index, size_t size);
+
 static void exit_if_dirty(_uc *ptr)
 {
   if (NOT_NULL_PRT(ptr))
@@ -438,30 +440,47 @@ static MAP_NODE *f_map_find_key(MAP *map, const _uc *key)
   return f_map_find_key_internal(map, which_block, which_index_in_block, key);
 }
 
-static void f_add_trie_node(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc content)
+static void f_add_trie_node(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc key)
 {
   _uc *new_node = mem_block_ds_blocks->get_block(mem_block_ds_blocks, sizeof(TRIE));
   assert(new_node);
 
-  /* signt the active path in the parent */
-  root->childs[content] = (TRIE*)new_node;
+  root->childs[key] = (TRIE*)new_node;
+  root->childs[key]->add_node = f_add_trie_node;
+  root->childs[key]->add_word = f_add_word_trie;
 }
 
-static void f_add_word_trie(TRIE **root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc *key, const size_t index)
+static void f_add_word_trie(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc *key, const size_t index, size_t size)
 {
-
+  if (index >= size) return;
+  //TODO: removable
+  if (!root || !root->add_word || !root->add_node)
+  {
+    LOG_E("Trie error");
+    exit(EXIT_FAILURE);
+  }
+  const uint8_t is_there_path = (root->childs[key[index]] != 0);
+  if (!is_there_path)
+  {
+    /* allocate a new child */
+    root->add_node(root, mem_block_ds_blocks, key[index]);
+  }
+  root->add_word(root->childs[key[index]], mem_block_ds_blocks, key, index+1, size);
 }
 
 /* PROGRAM FUNCTIONS ----------------------------------------------------------------------------------------------------- */
 void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_BLOCK *mem_block_ds_blocks)
 {
-  const _uc a[] = "nvbgurw47t47t4tqwhofuhe";
-  const _uc b[] = "bvdsbvbvbv245632bvdsvnf";
-  const _uc c[] = "nvbgurvvd77__4tqwhofuhe";
+  const _uc a[] = "hello0world";
+  const _uc b[] = "today-is_monday__";
+  const _uc c[] = "358836796754876----jvfnvjn";
 
   map->insert_key(map, a, mem_block_map_nodes_keys, mem_block_ds_blocks);
+  trie->add_word(trie, mem_block_ds_blocks, a, 0, strlen((const char*)a));
   map->insert_key(map, b, mem_block_map_nodes_keys, mem_block_ds_blocks);
+  trie->add_word(trie, mem_block_ds_blocks, b, 0, strlen((const char*)b));
   map->insert_key(map, c, mem_block_map_nodes_keys, mem_block_ds_blocks);
+  trie->add_word(trie, mem_block_ds_blocks, c, 0, strlen((const char*)c));
   MAP_NODE *found = 0;
   found = map->find_key(map, a);
   found = map->find_key(map, b);
@@ -539,8 +558,11 @@ static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format)
 
 static TRIE *f_get_new_trie(MEMORY_BLOCK *mem_block_ds_blocks)
 {
-  _uc *mem_start = mem_block_ds_blocks->get_block(mem_block_ds_blocks, sizeof(TRIE));
-  return (TRIE*)mem_start;
+  _uc *new_node = mem_block_ds_blocks->get_block(mem_block_ds_blocks, sizeof(TRIE));
+  TRIE *trie = (TRIE*)new_node;
+  trie->add_node = f_add_trie_node;
+  trie->add_word = f_add_word_trie;
+  return trie;
 }
 
 /* GLOOBAL VARIABLES ----------------------------------------------------------------------------------------------------- */
