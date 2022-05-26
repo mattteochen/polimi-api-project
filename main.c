@@ -26,6 +26,10 @@
  * */
 
 /* DEFINES --------------------------------------------------------------------------------------------------------------- */
+#define NOT_FOUND                       0x0
+#define WIN                             0x1
+#define NOT_EXISTS                      0x2
+#define WRONG_MATCH                     0x3
 #define DEFAULT_MEMORY_BLOCK            (1024u * 10000u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN       1024u
 #define NOT_NULL_PRT(P)                 P != NULL
@@ -116,7 +120,7 @@ typedef struct S_MAP
   void(*insert)(struct S_MAP*, _ui, struct S_MEMORY_BLOCK*);
   void(*insert_key)(struct S_MAP*, const _uc*, MEMORY_BLOCK *, MEMORY_BLOCK*);
   void(*remove_key)(struct S_MAP*, const _uc*);
-  void(*find_key)(struct S_MAP*, const _uc*);
+  MAP_NODE*(*find_key)(struct S_MAP*, const _uc*);
 } MAP;
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
@@ -402,7 +406,7 @@ static void f_map_remove_key(MAP *map, const _uc *key)
   f_map_delete_key_internal(which_block, which_index_in_block, map, key);
 }
 
-static void f_map_find_key_internal(MAP *map, const _ui which_block, const _ui which_index_in_block, const _uc *key)
+static MAP_NODE *f_map_find_key_internal(MAP *map, const _ui which_block, const _ui which_index_in_block, const _uc *key)
 {
   assert(which_index_in_block >= 0 && which_index_in_block < 1024);
   MAP_BLOCK_LIST *block = f_get_block_from_id(which_block, map);
@@ -414,19 +418,21 @@ static void f_map_find_key_internal(MAP *map, const _ui which_block, const _ui w
     if (memcmp((void*)finder->str_limits.start_ptr, (void*)key, size) == 0)
     {
       LOG_I(key);
+      return finder;
     }
     finder = finder->next;
   }
+  return NOT_FOUND;
 }
 
-static void f_map_find_key(MAP *map, const _uc *key)
+static MAP_NODE *f_map_find_key(MAP *map, const _uc *key)
 {
   const size_t len = strlen((const char*)key);
   const _ui hashed = hash((const _uc*)key, len); 
   const _ui which_block = (_ui)hashed >> 10;
   const _ui which_index_in_block = (_ui)hashed%DEFAULT_MAP_BLOCK_LIST_LEN;
   
-  f_map_find_key_internal(map, which_block, which_index_in_block, key);
+  return f_map_find_key_internal(map, which_block, which_index_in_block, key);
 }
 
 /* PROGRAM FUNCTIONS ----------------------------------------------------------------------------------------------------- */
@@ -439,17 +445,78 @@ void test(MAP *map, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_BLOCK *mem_bl
   map->insert_key(map, a, mem_block_map_nodes_keys, mem_block_map_blocks);
   map->insert_key(map, b, mem_block_map_nodes_keys, mem_block_map_blocks);
   map->insert_key(map, c, mem_block_map_nodes_keys, mem_block_map_blocks);
-  map->find_key(map, a);
-  map->find_key(map, b);
-  map->find_key(map, c);
+  MAP_NODE *found = 0;
+  found = map->find_key(map, a);
+  found = map->find_key(map, b);
+  found = map->find_key(map, c);
 }
 
-static void get_char_map(_uc *key, _ui *map)
+static void get_char_map(const _uc *key, _ui *map)
 {
   memset((void*)key, 0, 256);
   for (_ui i = 0; i < strlen((const char*)key); i++)
   {
     map[key[i]]++;
+  }
+}
+
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size)
+{
+  _ui char_map_target[256] = {0};
+  _ui char_map_test[256] = {0};
+  get_char_map(target, char_map_target);
+  get_char_map(test, char_map_test);
+  
+  memset((void*)format, 0, size);
+
+  /* assign correct position */
+  for (_ui i = 0; i < size; i++)
+  {
+    if (target[i] == test[i])
+    {
+      format[i] = '+';
+      char_map_target[target[i]]--;
+      char_map_test[test[i]]--;
+    }
+  }
+
+  /* assign wrong index */
+  for (_ui i = 0; i < size; i++)
+  {
+    if (format[i]) continue;
+    if (char_map_target[test[i]] && char_map_test[test[i]])
+    {
+      char_map_target[test[i]]--;
+      char_map_test[test[i]]--;
+      format[i] = '|';
+    }
+  }
+
+  /* assing wrong */
+  for (_ui i = 0; i < size; i++)
+  {
+    if (!format[i]) format[i] = '/';
+  }
+}
+
+static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format)
+{
+  const size_t size = strlen((const char*)target);
+  if (memcmp((const void*)target, (const void*)test, size) == 0)
+  {
+    printf("ok\n");
+    return WIN;
+  }
+  else if (map->find_key(map, test) == NOT_FOUND)
+  {
+    printf("not_exists\n"); 
+    return NOT_EXISTS;
+  }
+  else
+  {
+    format_match(target, test, format, size);
+    printf("%s\n", format);
+    return WRONG_MATCH;
   }
 }
 
