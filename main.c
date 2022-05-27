@@ -31,13 +31,14 @@
 #define WIN                             0x1
 #define NOT_EXISTS                      0x2
 #define WRONG_MATCH                     0x3
-#define DEFAULT_MEMORY_BLOCK            (1024u * 10000u)
+#define DEFAULT_MEMORY_BLOCK            (1024u * 10u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN       1024u
 #define NOT_NULL_PRT(P)                 P != NULL
 #define LOG_I(P)                        printf("[INFO] : %s\n",P);
 #define LOG_E(P)                        printf("[ERROR]: %s\n",P);
 #define LOG_INT(M,V)                    printf("[INFO] : %s %u\n", M, V);
 #define LOG_HEX(M,V)                    printf("[INFO] : %s 0x%lx\n", M, V);
+#define LOG_STR(M,V)                    printf("[INFO] : %s %s\n", M, V);
 
 /* ALIAS ----------------------------------------------------------------------------------------------------------------- */
 typedef int32_t         _i;
@@ -58,7 +59,7 @@ typedef struct S_MEMORY_BLOCK_NODE
   _uc *end;                         /* end memory pointer */
   struct S_MEMORY_BLOCK_NODE *next; /* a pointer to the next block */
 
-  void(*allocate)(struct S_MEMORY_BLOCK_NODE*, const _ul size);
+  void(*allocate)(struct S_MEMORY_BLOCK_NODE*, const _ul);
 } MEMORY_BLOCK_NODE;
 
 typedef struct S_MEMORY_BLOCK
@@ -66,10 +67,10 @@ typedef struct S_MEMORY_BLOCK
   MEMORY_BLOCK_NODE *finder; /* pointer to the current active block */  
   MEMORY_BLOCK_NODE *list;   /* a C linked list of MEMORY_BLOCK_NODE */ 
 
-  void(*init)     (struct S_MEMORY_BLOCK *block, _ul size);
-  void(*add_block)(struct S_MEMORY_BLOCK);
-  void(*deinit)   (struct S_MEMORY_BLOCK *block);
-  _uc*(*get_block)(struct S_MEMORY_BLOCK *block, _ul size);
+  void(*init)     (struct S_MEMORY_BLOCK*, _ul);
+  void(*add_block)(struct S_MEMORY_BLOCK*, _ul);
+  void(*deinit)   (struct S_MEMORY_BLOCK*);
+  _uc*(*get_block)(struct S_MEMORY_BLOCK*, _ul);
 } MEMORY_BLOCK;
 
 /**
@@ -107,8 +108,8 @@ typedef struct S_MAP_BLOCK_LIST
   MAP_NODE                *node_list[DEFAULT_MAP_BLOCK_LIST_LEN];   /* MAP_NODE pointer array */
   struct S_MAP_BLOCK_LIST *next;                                    /* a pointer to the next node */
 
-  void(*insert)(const _ui index, const _uc *key, struct S_MAP_BLOCK_LIST*, MEMORY_BLOCK*, MEMORY_BLOCK*);
-  void(*delete)(const _ui index,const _uc *key, struct S_MAP_BLOCK_LIST*);
+  void(*insert)(const _ui, const _uc *, struct S_MAP_BLOCK_LIST*, MEMORY_BLOCK*, MEMORY_BLOCK*);
+  void(*delete)(const _ui, const _uc *, struct S_MAP_BLOCK_LIST*);
 } MAP_BLOCK_LIST;
 
 /**
@@ -149,11 +150,11 @@ typedef struct S_TRIE
 } TRIE;
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
-static void f_add_trie_node       (TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc key);
-static void f_insert_key_trie     (TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc *key, const size_t index, size_t size);
-static void f_remove_key_trie     (TRIE *root, const _uc *key, size_t index);
-static bool f_trie_node_has_child (TRIE *root);
-static bool f_trie_find_key       (TRIE *root, const _uc *key, const size_t index, const size_t size);
+static void f_add_trie_node       (TRIE*, MEMORY_BLOCK*, const _uc);
+static void f_insert_key_trie     (TRIE*, MEMORY_BLOCK*, const _uc*, const size_t, size_t);
+static void f_remove_key_trie     (TRIE*, const _uc*, size_t);
+static bool f_trie_node_has_child (TRIE*);
+static bool f_trie_find_key       (TRIE*, const _uc*, const size_t, const size_t);
 
 static void exit_if_dirty(_uc *ptr)
 {
@@ -186,7 +187,7 @@ static void f_insert_inner_map_node_list(const _ui index,
   }
   new_node->next = 0;
   /* allocate string */
-  mem_start = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, strlen((const char*)key)+1);     
+  mem_start = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, strlen((const char*)key)+1); /* terminator! */    
   new_node->str_limits.start_ptr = mem_start;
   new_node->str_limits.end_ptr = mem_block_map_nodes_keys->finder->current-1;
   strcpy((char*)new_node->str_limits.start_ptr, (const char*)key);
@@ -220,14 +221,14 @@ static void f_delete_inner_map_node_list(const _ui index, const _uc *key, MAP_BL
       if (!finder_prev)
       {
         map_node->node_list[index] = finder->next; 
-        free(finder);
+        LOG_STR("Map removed: ", key);
         return;
       }
       /* otherwise */
       else 
       {
         finder_prev->next = finder->next;
-        free(finder);
+        LOG_STR("Map removed: ", key);
         return;
       }
     }
@@ -259,6 +260,21 @@ static void f_init_memory_block(MEMORY_BLOCK *block, _ul size)
   LOG_I("Memory block initialized");
 }
 
+static void f_add_memory_block_node(MEMORY_BLOCK *block, const _ul size)
+{
+  assert(block);
+
+  /* create new memory block node */
+  MEMORY_BLOCK_NODE *new_node = calloc(1, sizeof(MEMORY_BLOCK_NODE));
+  new_node->allocate = f_allocate_new_memory_block_node;
+  new_node->next = 0;
+  /* allocate resources */
+  new_node->allocate(new_node, size);
+  /* assign the new node */
+  block->finder->next = new_node;
+  block->finder = new_node;
+}
+
 static void f_deinit_memory_block(MEMORY_BLOCK *block)
 {
   MEMORY_BLOCK_NODE *finder = block->list;
@@ -279,19 +295,15 @@ static _uc *f_get_memory_block(MEMORY_BLOCK *block, _ul size)
   assert(size > 0);
   if (block->finder->current+size > block->finder->end)
   {
-    //TODO add new memory
-    LOG_E("Out of memory block, allocate new block");
-    exit(EXIT_SUCCESS);
+    _ul new_size = (size > DEFAULT_MEMORY_BLOCK ? ((size/DEFAULT_MEMORY_BLOCK)+1)*DEFAULT_MEMORY_BLOCK : DEFAULT_MEMORY_BLOCK);
+    LOG_I("Allocating new block node");
+    block->add_block(block, new_size);
   }
-  else
-  {
-    _uc *ret = block->finder->current;
-    block->finder->current += size;
-    LOG_HEX("Memory block used:", block->finder->current-ret);
-    return ret;
-  }
+  _uc *ret = block->finder->current;
+  block->finder->current += size;
+  LOG_HEX("Memory block used:", block->finder->current-ret);
+  return ret;
 }
-
 
 static void f_init_map(MAP *map, MEMORY_BLOCK *memory_block)
 {
@@ -311,6 +323,7 @@ static void f_init_map(MAP *map, MEMORY_BLOCK *memory_block)
 
 static void f_deinit_map(MAP *map)
 {
+#ifdef USE_MAP_DEINIT
   MAP_BLOCK_LIST *finder = map->lists;
   MAP_BLOCK_LIST *prev = NULL;
   while (finder)
@@ -344,6 +357,7 @@ static void f_deinit_map(MAP *map)
   }
   if (prev) free(prev);
   LOG_I("Map deallocation complete");
+#endif
 }
 
 static void f_insert_map_node_list(MAP *map, _ui id, MEMORY_BLOCK *memory_block)
@@ -461,6 +475,7 @@ static MAP_NODE *f_map_find_key_internal(MAP *map, const _ui which_block, const 
   {
     if (memcmp((void*)finder->str_limits.start_ptr, (void*)key, size) == 0)
     {
+      LOG_STR("Map found: ", key);
       return finder;
     }
     finder = finder->next;
@@ -568,27 +583,37 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_B
   const _uc a[] = "aaaaaaab";
   const _uc b[] = "aaaaaaac";
   const _uc c[] = "ancora";
-
+  
+  /* insertion */
   map->insert_key(map, a, mem_block_map_nodes_keys, mem_block_ds_blocks);
   trie->insert_key(trie, mem_block_ds_blocks, a, 0, strlen((const char*)a));
   map->insert_key(map, b, mem_block_map_nodes_keys, mem_block_ds_blocks);
   trie->insert_key(trie, mem_block_ds_blocks, b, 0, strlen((const char*)b));
   map->insert_key(map, c, mem_block_map_nodes_keys, mem_block_ds_blocks);
   trie->insert_key(trie, mem_block_ds_blocks, c, 0, strlen((const char*)c));
+
+  /* search */
   MAP_NODE *found = 0;
   found = map->find_key(map, a);
   found = map->find_key(map, b);
   found = map->find_key(map, c);
+  if (trie->find_key(trie, a, 0, strlen((const char*)a))) LOG_STR("Trie found", a);
+  if (trie->find_key(trie, b, 0, strlen((const char*)b))) LOG_STR("Trie found", b);
+  if (trie->find_key(trie, c, 0, strlen((const char*)c))) LOG_STR("Trie found", c);
 
-  //map->remove_key(map, a);
-
+  LOG_I("Before trie removal");
   _uc buffer[256] = {0};
   f_print_trie(trie, buffer, 0);
 
+  /* removal */
+  map->remove_key(map, a);
+  map->remove_key(map, b);
+  map->remove_key(map, c);
   trie->remove_key(trie, a, 0);
   trie->remove_key(trie, b, 0);
   trie->remove_key(trie, c, 0);
 
+  LOG_I("After trie removal");
   f_print_trie(trie, buffer, 0);
 }
 
@@ -691,10 +716,12 @@ int main(int argc, char *argv[])
 
   MEMORY_BLOCK mem_block_ds_blocks      = {.init = f_init_memory_block,
                                            .deinit = f_deinit_memory_block,
-                                           .get_block = f_get_memory_block};
+                                           .get_block = f_get_memory_block,
+                                           .add_block = f_add_memory_block_node};
   MEMORY_BLOCK mem_block_map_nodes_keys = {.init = f_init_memory_block,
                                            .deinit = f_deinit_memory_block,
-                                           .get_block = f_get_memory_block};
+                                           .get_block = f_get_memory_block,
+                                           .add_block = f_add_memory_block_node};
   mem_block_ds_blocks.init(&mem_block_ds_blocks, DEFAULT_MEMORY_BLOCK);
   mem_block_map_nodes_keys.init(&mem_block_map_nodes_keys, DEFAULT_MEMORY_BLOCK);
   
@@ -703,7 +730,8 @@ int main(int argc, char *argv[])
               .deinit = f_deinit_map,
               .insert = f_insert_map_node_list,
               .insert_key = f_map_insert_key,
-              .find_key = f_map_find_key, 
+              .find_key = f_map_find_key,
+              .remove_key = f_map_remove_key,
               .lists = NULL,
               .current.list = NULL};
   map.init(&map, &mem_block_ds_blocks);
