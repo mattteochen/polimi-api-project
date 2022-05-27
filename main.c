@@ -711,9 +711,6 @@ const _uc c_str_print_filtered[]    = "+stampa_filtrate";
 int main(int argc, char *argv[])
 {
   /* init mem blocks */
-  //MEMORY_BLOCK mem_block_ds_blocks;
-  //MEMORY_BLOCK mem_block_map_nodes_keys;
-
   MEMORY_BLOCK mem_block_ds_blocks      = {.init = f_init_memory_block,
                                            .deinit = f_deinit_memory_block,
                                            .get_block = f_get_memory_block,
