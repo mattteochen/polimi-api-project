@@ -1,3 +1,10 @@
+/**
+ * @brief: API final project
+ * @author: Kaixi Matteo Chen
+ * @copyright: 2022 myself
+ *
+ * */
+
 #include <assert.h>
 #include <stdbool.h>
 #include <math.h>
@@ -7,32 +14,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* 
- * Needed DS:
- * - std::unordered_map<>
- *  - insertion
- *  - deletion
- *  - search
- *
- *
- *
- *
- * */
-
-/*
- * Enhancements:
- * - allocate bigger arrays for every node of the map
- * - think about a map for the outer index
- *
- * */
-
 /* DEFINES --------------------------------------------------------------------------------------------------------------- */
 #define NOT_FOUND                       0x0
 #define WIN                             0x1
 #define NOT_EXISTS                      0x2
 #define WRONG_MATCH                     0x3
 #define DEFAULT_MEMORY_BLOCK            (1024u * 10u)
-#define DEFAULT_MAP_BLOCK_LIST_LEN       1024u
+#define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
 #define LOG_I(P)                        printf("[INFO] : %s\n",P);
 #define LOG_E(P)                        printf("[ERROR]: %s\n",P);
@@ -50,7 +38,7 @@ typedef uint8_t         _uc;
 
 /* STRUCT TYPEDEF -------------------------------------------------------------------------------------------------------- */
 /**
-* @brief allocate a generic memory block;
+* @brief a generic memory block;
 */
 typedef struct S_MEMORY_BLOCK_NODE
 {
@@ -387,7 +375,7 @@ static void f_insert_map_node_list(MAP *map, _ui id, MEMORY_BLOCK *memory_block)
   map->list_size++;
 }
 
-/* TO REVIEW */
+/* https://en.wikipedia.org/wiki/Jenkins_hash_function */
 static _ui hash(const _uc *key, size_t length) {
   size_t i = 0;
   _ui hash = 0;
