@@ -611,7 +611,6 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_B
 
 static void get_char_map(const _uc *key, _ui *map)
 {
-  memset((void*)key, 0, 256);
   for (_ui i = 0; i < strlen((const char*)key); i++)
   {
     map[key[i]]++;
