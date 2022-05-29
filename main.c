@@ -21,7 +21,7 @@
 #define WRONG_MATCH                     0x3
 #define TRIE_DELETE_KEY                 0x0
 #define TRIE_MAINTAIN_KEY               0x1
-#define DEFAULT_MEMORY_BLOCK            (1024u * 10u)
+#define DEFAULT_MEMORY_BLOCK            (1024u * 100000u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
 #define LOG_I(P)                        printf("[INFO] : %s\n",P);
@@ -139,6 +139,12 @@ typedef struct S_TRIE
   bool(*find_key)   (struct S_TRIE*, const _uc*, const size_t, const size_t);
   _uc(*clean)       (struct S_TRIE*, const _uc*, const _ui*, const _uc*, const _ui*, _ui*, const size_t);    
 } TRIE;
+
+/* GLOOBAL VARIABLES ----------------------------------------------------------------------------------------------------- */
+const _uc c_str_new_match[]         = "+nuova_partita";
+const _uc c_str_start_insert_keys[] = "+inserisci_inizio";
+const _uc c_str_end_insert_keys[]   = "+inserisci_fine";
+const _uc c_str_print_filtered[]    = "+stampa_filtrate";
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
 static void f_add_trie_node       (TRIE*, MEMORY_BLOCK*, const _uc);
@@ -296,12 +302,12 @@ static _uc *f_get_memory_block(MEMORY_BLOCK *block, _ul size)
   if (block->finder->current+size > block->finder->end)
   {
     _ul new_size = (size > DEFAULT_MEMORY_BLOCK ? ((size/DEFAULT_MEMORY_BLOCK)+1)*DEFAULT_MEMORY_BLOCK : DEFAULT_MEMORY_BLOCK);
-    LOG_I("Allocating new block node");
+    //LOG_I("Allocating new block node");
     block->add_block(block, new_size);
   }
   _uc *ret = block->finder->current;
   block->finder->current += size;
-  LOG_HEX("Memory block used:", block->finder->current-ret);
+  //LOG_HEX("Memory block used:", block->finder->current-ret);
   return ret;
 }
 
@@ -551,7 +557,12 @@ static bool f_trie_node_has_child(TRIE *root)
 static bool f_trie_find_key(TRIE *root, const _uc *key, const size_t index, const size_t size)
 {
   if (index >= size) return 1;
-  if (!root->childs[key[index]]) return 0;
+  if (!root->childs[key[index]])
+  {
+    printf("\n0, index: %u - size: %u\n", index, size);
+    return 0;
+  }
+  printf("%c ", key[index]);
   return 1 * root->find_key(root->childs[key[index]], key, index+1, size);
 }
 
@@ -623,47 +634,6 @@ static void f_print_trie(TRIE *root, _uc *buffer, size_t index)
 }
 
 /* PROGRAM FUNCTIONS ----------------------------------------------------------------------------------------------------- */
-void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_BLOCK *mem_block_ds_blocks)
-{
-  const _uc a[] = "aaaa-a-b";
-  const _uc b[] = "a_aaaaac";
-  const _uc c[] = "an89orac";
-
-  /* build the buffer for true operation */
-  _uc *buffer = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, sizeof(a));
-
-  /* insertion */
-  map->insert_key(map, a, mem_block_map_nodes_keys, mem_block_ds_blocks);
-  trie->insert_key(trie, mem_block_ds_blocks, a, 0, strlen((const char*)a));
-  map->insert_key(map, b, mem_block_map_nodes_keys, mem_block_ds_blocks);
-  trie->insert_key(trie, mem_block_ds_blocks, b, 0, strlen((const char*)b));
-  map->insert_key(map, c, mem_block_map_nodes_keys, mem_block_ds_blocks);
-  trie->insert_key(trie, mem_block_ds_blocks, c, 0, strlen((const char*)c));
-
-  /* search */
-  MAP_NODE *found = 0;
-  found = map->find_key(map, a);
-  found = map->find_key(map, b);
-  found = map->find_key(map, c);
-  if (trie->find_key(trie, a, 0, strlen((const char*)a))) LOG_STR("Trie found", a);
-  if (trie->find_key(trie, b, 0, strlen((const char*)b))) LOG_STR("Trie found", b);
-  if (trie->find_key(trie, c, 0, strlen((const char*)c))) LOG_STR("Trie found", c);
-
-  LOG_I("Before trie removal");
-  f_print_trie(trie, buffer, 0);
-
-  /* removal */
-  map->remove_key(map, a);
-  map->remove_key(map, b);
-  map->remove_key(map, c);
-  trie->remove_key(trie, a, 0);
-  trie->remove_key(trie, b, 0);
-  trie->remove_key(trie, c, 0);
-
-  LOG_I("After trie removal");
-  f_print_trie(trie, buffer, 0);
-}
-
 static void get_char_map(const _uc *key, _ui *map)
 {
   memset((void*)map, 0, 256);
@@ -729,10 +699,10 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   {
     if (!format[i]) format[i] = '/';
   }
+  format[size] = '\0';
 }
 
-static _ui solve(MAP *map,
-                 TRIE *trie,
+static _ui solve(TRIE *trie,
                  const _uc *target,
                  const _uc *test, 
                  _uc *format, 
@@ -740,17 +710,20 @@ static _ui solve(MAP *map,
                  _ui *wrong_chars_num, /* can be avoided */
                  _uc *wrong_pos, 
                  _ui *target_char_map, 
-                 _ui *test_char_map)
+                 _ui *test_char_map,
+                 _ui *wrong_counter,
+                 const _ui max_wrong)
 {
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
   {
-    printf("ok\n");
+    printf("---->ok\n");
+    (*wrong_counter)++;
     return WIN;
   }
   else if (trie->find_key(trie, test, 0, strlen((const char*)test)) == NOT_FOUND)
   {
-    printf("not_exists\n"); 
+    printf("---->not_exists\n"); 
     return NOT_EXISTS;
   }
   else
@@ -759,7 +732,10 @@ static _ui solve(MAP *map,
     get_char_map(test, test_char_map);
     format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos);
     trie->clean(trie, wrong_chars, wrong_chars_num, wrong_pos, target_char_map, test_char_map, 0); 
-    printf("%s\n", format);
+    printf("---->%s\n", format);
+    //f_print_trie(trie, format, 0);
+    (*wrong_counter)++;
+    if ((*wrong_counter) >= max_wrong) printf("---->ko\n");
     return WRONG_MATCH;
   }
 }
@@ -777,14 +753,133 @@ static TRIE *f_get_new_trie(MEMORY_BLOCK *mem_block_ds_blocks)
   return trie;
 }
 
-/* GLOOBAL VARIABLES ----------------------------------------------------------------------------------------------------- */
-const _uc c_str_start_match[]       = "+inizio_partita";
-const _uc c_str_new_match[]         = "+nuova_partita";
-const _uc c_str_start_insert_keys[] = "+inserisci_inizio";
-const _uc c_str_end_insert_keys[]   = "+inserisci_fine";
-const _uc c_str_print_filtered[]    = "+stampa_filtrate";
+static void clean_new_line(_uc *buffer)
+{
+  size_t last_index = strlen((const char*)buffer);
+  if (buffer[last_index-1] == '\n') buffer[last_index-1] = '\0';
+}
 
+static _uc get_vocabulary(TRIE *trie,MEMORY_BLOCK *mem_block_map_nodes_keys, _uc *buffer, _ui read_len)
+{
+  while (fgets((char*)buffer, read_len, stdin))
+  {
+    /* delete the new line */
+    clean_new_line(buffer);
 
+    /* in game started ? */
+    if (!memcmp((void*)buffer, (void*)(c_str_new_match), sizeof(c_str_new_match))) return 1;
+
+    trie->insert_key(trie, mem_block_map_nodes_keys, buffer, 0, strlen((const char*)buffer));
+  }
+  return 0;
+}
+
+static void f_add_words(TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, _uc *buffer, const _ui str_len)
+{
+  bool _continue = 1;
+  do
+  {
+    if (fgets((char*)buffer, str_len, stdin))
+    {
+      clean_new_line(buffer);
+      _continue = memcmp((void*)buffer, (void*)c_str_end_insert_keys, sizeof(c_str_end_insert_keys)); 
+      if (_continue) trie->insert_key(trie, mem_block_map_nodes_keys, buffer, 0, strlen((const char*)buffer));
+    }
+  } while (_continue);
+}
+
+void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_BLOCK *mem_block_ds_blocks)
+{
+  /* utils preparation */
+  _uc *buffer = 0;
+  _uc *tester = malloc(11); /* max 32 bit integer */
+  _uc *target = 0;
+  size_t str_len = 0;
+
+  /* helper buffers */
+  _uc *mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, sizeof(_ui)*256);
+  _ui *target_char_map = (_ui*)mem_alloc;
+  mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, 256);
+  _uc *wrong_chars = mem_alloc;
+  mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, sizeof(_ui)*256);
+  _ui *wrong_chars_num = (_ui*)mem_alloc;
+  mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, 256);
+  _uc *wrong_pos = mem_alloc;
+  mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, sizeof(_ui)*256);
+  _ui *test_char_map = (_ui*)mem_alloc;
+  
+  /* get the length of the strings */
+  getline((char**)&tester, &str_len, stdin);
+  str_len = atoi((const char*)tester);
+  str_len = (_ul)(str_len > 20 ? str_len : 20);
+  buffer = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, str_len);
+  _uc start_game = get_vocabulary(trie, mem_block_map_nodes_keys, buffer, str_len);
+  f_print_trie(trie, buffer, 0);
+
+  /* the printf buffer */
+  mem_alloc = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, str_len);
+  _uc *format = mem_alloc;
+
+  while (1)
+  {
+    if (!start_game) return;
+
+    /* insid a game */
+    _ui counter = 0;
+    _ui shots = 0;
+    _ui wrong_counter = 0;
+
+    while (fgets((char*)buffer, str_len, stdin))
+    {
+      clean_new_line(buffer);
+
+      /* the first is the target */
+      if (!counter)
+      {
+        target = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, str_len);
+        strcpy((char*)target, (const char*)buffer);
+      }
+      /* the second represent how many shots */
+      else if (counter == 1)
+      {
+        shots = atoi((const char*)buffer);
+        /* we are on */
+      }
+      /* command print trie */
+      else if (!memcmp((void*)buffer, (void*)c_str_print_filtered, sizeof(c_str_print_filtered)))
+      {
+        f_print_trie(trie, format, 0);
+      }
+      /* command add words */
+      else if (!memcmp((void*)buffer, (void*)c_str_start_insert_keys, sizeof(c_str_start_insert_keys)))
+      {
+        f_add_words(trie, mem_block_map_nodes_keys, buffer, str_len); 
+      }
+      /* command new game */
+      else if (!memcmp((void*)buffer, (void*)c_str_new_match, sizeof(c_str_new_match)))
+      {
+        break;
+      }
+      /* check word */
+      else
+      {
+        /* skip if out of limits */
+        if (wrong_counter >= shots) continue;
+        if (solve(trie,
+              target, 
+              buffer, 
+              format, 
+              wrong_chars, 
+              wrong_chars_num, 
+              wrong_pos, 
+              target_char_map, 
+              test_char_map, 
+              &wrong_counter, shots) == WIN) return;
+      }
+      counter++;
+    }
+  }
+}
 
 /* MAIN ------------------------------------------------------------------------------------------------------------------ */
 int main(int argc, char *argv[])
@@ -815,7 +910,7 @@ int main(int argc, char *argv[])
   /* init trie root */
   TRIE *trie = f_get_new_trie(&mem_block_ds_blocks);
 
-  /* test DSA */
+  /* test */
   test(&map, trie, &mem_block_map_nodes_keys, &mem_block_ds_blocks);
 
   /* deallocate all sources */
