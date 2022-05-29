@@ -617,12 +617,22 @@ static void get_char_map(const _uc *key, _ui *map)
   }
 }
 
-static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size)
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars)
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
   get_char_map(target, char_map_target);
   get_char_map(test, char_map_test);
+
+  memset((void*)wrong_chars, 0, 256);
+  /* create the wrong list in to compute on the trie */
+  for (_ui i = 0; i < 256; i++)
+  {
+    if (char_map_test[i] && !char_map_target[i])
+    {
+      wrong_chars[i]++;
+    }
+  }
   
   memset((void*)format, 0, size);
 
