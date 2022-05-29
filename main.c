@@ -617,7 +617,7 @@ static void get_char_map(const _uc *key, _ui *map)
   }
 }
 
-static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _uc *min_chars)
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _uc *wrong_chars_num, _uc *wrong_pos)
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
@@ -626,7 +626,7 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
 
   /* create the wrong list in to compute on the trie */
   memset((void*)wrong_chars, 0, 256);
-  memset((void*)min_chars, 0, 256);
+  memset((void*)wrong_chars_num, 0, 256);
   for (_ui i = 0; i < 256; i++)
   {
     if (char_map_test[i] && !char_map_target[i])
@@ -635,7 +635,8 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
     }
     if (char_map_test[i] != char_map_target[i])
     {
-      min_chars[i]++;
+      /* delete all the words with this frequency for this char */
+      wrong_chars_num[i] = char_map_test[i];
     }
   }
   
@@ -653,6 +654,7 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   }
 
   /* assign wrong index */
+  memset((void*)wrong_pos, 0, 256);
   for (_ui i = 0; i < size; i++)
   {
     if (format[i]) continue;
@@ -661,6 +663,8 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
       char_map_target[test[i]]--;
       char_map_test[test[i]]--;
       format[i] = '|';
+      /* we can not have this char (test[i]) in this index (i) */
+      wrong_pos[test[i]] = i;
     }
   }
 
@@ -671,7 +675,7 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   }
 }
 
-static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *min_chars)
+static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *wrong_chars_num,_uc *wrong_pos)
 {
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
@@ -686,7 +690,7 @@ static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc 
   }
   else
   {
-    format_match(target, test, format, size, wrong_chars, min_chars);
+    format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos);
     printf("%s\n", format);
     return WRONG_MATCH;
   }
