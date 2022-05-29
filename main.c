@@ -570,10 +570,13 @@ static void f_print_trie(TRIE *root, _uc *buffer, size_t index)
 /* PROGRAM FUNCTIONS ----------------------------------------------------------------------------------------------------- */
 void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_BLOCK *mem_block_ds_blocks)
 {
-  const _uc a[] = "aaaaaaab";
-  const _uc b[] = "aaaaaaac";
-  const _uc c[] = "ancora";
-  
+  const _uc a[] = "aaaa-a-b";
+  const _uc b[] = "a_aaaaac";
+  const _uc c[] = "an89orac";
+
+  /* build the buffer for true operation */
+  _uc *buffer = mem_block_map_nodes_keys->get_block(mem_block_map_nodes_keys, sizeof(a));
+
   /* insertion */
   map->insert_key(map, a, mem_block_map_nodes_keys, mem_block_ds_blocks);
   trie->insert_key(trie, mem_block_ds_blocks, a, 0, strlen((const char*)a));
@@ -592,7 +595,6 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_B
   if (trie->find_key(trie, c, 0, strlen((const char*)c))) LOG_STR("Trie found", c);
 
   LOG_I("Before trie removal");
-  _uc buffer[256] = {0};
   f_print_trie(trie, buffer, 0);
 
   /* removal */
