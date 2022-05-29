@@ -675,7 +675,7 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   }
 }
 
-static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *wrong_chars_num,_uc *wrong_pos)
+static _ui solve(MAP *map, TRIE *trie, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *wrong_chars_num,_uc *wrong_pos)
 {
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
@@ -683,7 +683,7 @@ static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc 
     printf("ok\n");
     return WIN;
   }
-  else if (map->find_key(map, test) == NOT_FOUND)
+  else if (trie->find_key(trie, test, 0, strlen((const char*)test)) == NOT_FOUND)
   {
     printf("not_exists\n"); 
     return NOT_EXISTS;
