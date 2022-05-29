@@ -19,6 +19,8 @@
 #define WIN                             0x1
 #define NOT_EXISTS                      0x2
 #define WRONG_MATCH                     0x3
+#define TRIE_DELETE_KEY                 0x0
+#define TRIE_MAINTAIN_KEY               0x1
 #define DEFAULT_MEMORY_BLOCK            (1024u * 10u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
@@ -135,6 +137,7 @@ typedef struct S_TRIE
   void(*remove_key) (struct S_TRIE*, const _uc*, const size_t);
   bool(*has_childs) (struct S_TRIE*);
   bool(*find_key)   (struct S_TRIE*, const _uc*, const size_t, const size_t);
+  _uc(*clean)       (struct S_TRIE*, const _uc*, const _uc*, const _uc*, const _uc*, _uc*, const size_t);    
 } TRIE;
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
@@ -143,6 +146,13 @@ static void f_insert_key_trie     (TRIE*, MEMORY_BLOCK*, const _uc*, const size_
 static void f_remove_key_trie     (TRIE*, const _uc*, size_t);
 static bool f_trie_node_has_child (TRIE*);
 static bool f_trie_find_key       (TRIE*, const _uc*, const size_t, const size_t);
+static _uc  f_trie_clean_keys(TRIE *root,
+                              const _uc *wrong_chars,
+                              const _uc *wrong_chars_num,
+                              const _uc *wrong_pos,
+                              const _uc *targte_char_map,
+                              _uc *chars_map,
+                              const size_t index);;
 
 static void exit_if_dirty(_uc *ptr)
 {
@@ -488,12 +498,13 @@ static void f_add_trie_node(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const
   _uc *new_node = mem_block_ds_blocks->get_block(mem_block_ds_blocks, sizeof(TRIE));
   assert(new_node);
 
-  root->childs[key] = (TRIE*)new_node;
-  root->childs[key]->add_node = f_add_trie_node;
+  root->childs[key]             = (TRIE*)new_node;
+  root->childs[key]->add_node   = f_add_trie_node;
   root->childs[key]->insert_key = f_insert_key_trie;
   root->childs[key]->remove_key = f_remove_key_trie;
   root->childs[key]->has_childs = f_trie_node_has_child;
-  root->childs[key]->find_key = f_trie_find_key;
+  root->childs[key]->find_key   = f_trie_find_key;
+  root->childs[key]->clean      = f_trie_clean_keys;
 }
 
 static void f_insert_key_trie(TRIE *root, MEMORY_BLOCK *mem_block_ds_blocks, const _uc *key, const size_t index, size_t size)
@@ -544,6 +555,53 @@ static bool f_trie_find_key(TRIE *root, const _uc *key, const size_t index, cons
   return 1 * root->find_key(root->childs[key[index]], key, index+1, size);
 }
 
+static _uc f_trie_clean_keys(TRIE *root,
+                              const _uc *wrong_chars,
+                              const _uc *wrong_chars_num,
+                              const _uc *wrong_pos,
+                              const _uc *targte_char_map,
+                              _uc *chars_map,
+                              const size_t index)
+{
+  if (!root) return TRIE_MAINTAIN_KEY;
+  if (!root->has_childs(root))
+  {
+    /* we are at a leaf, with the computed char map */
+    bool are_equal = memcmp((void*)chars_map, (void*) targte_char_map, 256);
+    if (are_equal == 0) return TRIE_MAINTAIN_KEY; /* true */
+    /* start the unfolding deletion */ 
+    return TRIE_DELETE_KEY; 
+  }
+  for (_ui i = 0; i < 256; i++)
+  {
+    /* delete all the subtrees with this character or wrong position, no more recursion needed */
+    if ((root->childs[i] && wrong_chars[i]) || (root->childs[i] && (wrong_pos[i] != index)))
+    {
+      //TODO add number of childs field
+      root->childs[i] = 0;
+    }
+    else if (root->childs[i])
+    {
+      /* build the chars map recursively */
+      chars_map[i]++;
+      _uc do_delete = root->clean(root->childs[i], wrong_chars, wrong_chars_num, wrong_pos, targte_char_map, chars_map, index+1); 
+      /* cleanup the map for this character */
+      chars_map[i]--;
+      if (do_delete == TRIE_DELETE_KEY)
+      {
+        /* delete key */
+        root->childs[i] = 0;
+        /* kill whole node if it has no more childs */
+        if (!root->has_childs(root))
+        {
+          return TRIE_DELETE_KEY;
+        }
+      }
+    }
+  }
+  return TRIE_MAINTAIN_KEY;
+}
+
 static void f_print_trie(TRIE *root, _uc *buffer, size_t index)
 {
   uint8_t is_last = 1;
@@ -558,6 +616,7 @@ static void f_print_trie(TRIE *root, _uc *buffer, size_t index)
       is_last = 0;
       buffer[index] = i;
       f_print_trie(root->childs[i], buffer, index+1);
+      /* do not compute the buffer clean because it is overwritten */
     }
   }
   if (is_last)
@@ -691,6 +750,7 @@ static _ui solve(MAP *map, TRIE *trie, const _uc *target, const _uc *test, _uc *
   else
   {
     format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos);
+    
     printf("%s\n", format);
     return WRONG_MATCH;
   }
@@ -699,12 +759,13 @@ static _ui solve(MAP *map, TRIE *trie, const _uc *target, const _uc *test, _uc *
 static TRIE *f_get_new_trie(MEMORY_BLOCK *mem_block_ds_blocks)
 {
   _uc *new_node = mem_block_ds_blocks->get_block(mem_block_ds_blocks, sizeof(TRIE));
-  TRIE *trie = (TRIE*)new_node;
-  trie->add_node = f_add_trie_node;
-  trie->insert_key = f_insert_key_trie;
-  trie->remove_key = f_remove_key_trie;
-  trie->has_childs = f_trie_node_has_child;
-  trie->find_key = f_trie_find_key;
+  TRIE *trie        = (TRIE*)new_node;
+  trie->add_node    = f_add_trie_node;
+  trie->insert_key  = f_insert_key_trie;
+  trie->remove_key  = f_remove_key_trie;
+  trie->has_childs  = f_trie_node_has_child;
+  trie->find_key    = f_trie_find_key;
+  trie->clean       = f_trie_clean_keys;
   return trie;
 }
 
