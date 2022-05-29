@@ -199,11 +199,13 @@ static void f_delete_inner_map_node_list(const _ui index, const _uc *key, MAP_BL
   assert(key);
   assert(map_node);
   MAP_NODE *finder = map_node->node_list[index];
-  MAP_NODE *finder_prev = NULL;
+  MAP_NODE *finder_prev = NULL;strlen((const char*)key);
+  size_t size = strlen((const char*)key);
+
   /* scan the linked list at the index calculated by the hash */
   while (finder)
   {
-    if (memcmp((const void*)finder->str_limits.start_ptr, (const void*)key, strlen((const char*)key)) == 0)
+    if (memcmp((const void*)finder->str_limits.start_ptr, (const void*)key, size) == 0)
     {
       /* head remove */
       if (!finder_prev)
