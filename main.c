@@ -137,7 +137,7 @@ typedef struct S_TRIE
   void(*remove_key) (struct S_TRIE*, const _uc*, const size_t);
   bool(*has_childs) (struct S_TRIE*);
   bool(*find_key)   (struct S_TRIE*, const _uc*, const size_t, const size_t);
-  _uc(*clean)       (struct S_TRIE*, const _uc*, const _uc*, const _uc*, const _uc*, _uc*, const size_t);    
+  _uc(*clean)       (struct S_TRIE*, const _uc*, const _ui*, const _uc*, const _ui*, _ui*, const size_t);    
 } TRIE;
 
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
@@ -146,13 +146,13 @@ static void f_insert_key_trie     (TRIE*, MEMORY_BLOCK*, const _uc*, const size_
 static void f_remove_key_trie     (TRIE*, const _uc*, size_t);
 static bool f_trie_node_has_child (TRIE*);
 static bool f_trie_find_key       (TRIE*, const _uc*, const size_t, const size_t);
-static _uc  f_trie_clean_keys(TRIE *root,
-                              const _uc *wrong_chars,
-                              const _uc *wrong_chars_num,
-                              const _uc *wrong_pos,
-                              const _uc *targte_char_map,
-                              _uc *chars_map,
-                              const size_t index);;
+static _uc  f_trie_clean_keys(TRIE *,
+                              const _uc*,
+                              const _ui*,
+                              const _uc*,
+                              const _ui*,
+                              _ui*,
+                              const size_t);;
 
 static void exit_if_dirty(_uc *ptr)
 {
@@ -557,17 +557,17 @@ static bool f_trie_find_key(TRIE *root, const _uc *key, const size_t index, cons
 
 static _uc f_trie_clean_keys(TRIE *root,
                               const _uc *wrong_chars,
-                              const _uc *wrong_chars_num,
+                              const _ui *wrong_chars_num,
                               const _uc *wrong_pos,
-                              const _uc *targte_char_map,
-                              _uc *chars_map,
+                              const _ui *target_char_map,
+                              _ui *chars_map,
                               const size_t index)
 {
   if (!root) return TRIE_MAINTAIN_KEY;
   if (!root->has_childs(root))
   {
     /* we are at a leaf, with the computed char map */
-    bool are_equal = memcmp((void*)chars_map, (void*) targte_char_map, 256);
+    bool are_equal = memcmp((void*)chars_map, (void*) target_char_map, 256);
     if (are_equal == 0) return TRIE_MAINTAIN_KEY; /* true */
     /* start the unfolding deletion */ 
     return TRIE_DELETE_KEY; 
@@ -584,22 +584,18 @@ static _uc f_trie_clean_keys(TRIE *root,
     {
       /* build the chars map recursively */
       chars_map[i]++;
-      _uc do_delete = root->clean(root->childs[i], wrong_chars, wrong_chars_num, wrong_pos, targte_char_map, chars_map, index+1); 
+      _uc do_delete = root->clean(root->childs[i], wrong_chars, wrong_chars_num, wrong_pos, target_char_map, chars_map, index+1); 
       /* cleanup the map for this character */
       chars_map[i]--;
       if (do_delete == TRIE_DELETE_KEY)
       {
         /* delete key */
         root->childs[i] = 0;
-        /* kill whole node if it has no more childs */
-        if (!root->has_childs(root))
-        {
-          return TRIE_DELETE_KEY;
-        }
       }
     }
   }
-  return TRIE_MAINTAIN_KEY;
+  /* kill whole node if it has no more childs */
+  return !root->has_childs(root) ? TRIE_DELETE_KEY : TRIE_MAINTAIN_KEY;
 }
 
 static void f_print_trie(TRIE *root, _uc *buffer, size_t index)
@@ -670,13 +666,14 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *mem_block_map_nodes_keys, MEMORY_B
 
 static void get_char_map(const _uc *key, _ui *map)
 {
+  memset((void*)map, 0, 256);
   for (_ui i = 0; i < strlen((const char*)key); i++)
   {
     map[key[i]]++;
   }
 }
 
-static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _uc *wrong_chars_num, _uc *wrong_pos)
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _ui *wrong_chars_num, _uc *wrong_pos)
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
@@ -734,7 +731,16 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   }
 }
 
-static _ui solve(MAP *map, TRIE *trie, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *wrong_chars_num,_uc *wrong_pos)
+static _ui solve(MAP *map,
+                 TRIE *trie,
+                 const _uc *target,
+                 const _uc *test, 
+                 _uc *format, 
+                 _uc *wrong_chars, 
+                 _ui *wrong_chars_num, /* can be avoided */
+                 _uc *wrong_pos, 
+                 _ui *target_char_map, 
+                 _ui *test_char_map)
 {
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
@@ -749,8 +755,10 @@ static _ui solve(MAP *map, TRIE *trie, const _uc *target, const _uc *test, _uc *
   }
   else
   {
+    /* build the test char map */
+    get_char_map(test, test_char_map);
     format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos);
-    
+    trie->clean(trie, wrong_chars, wrong_chars_num, wrong_pos, target_char_map, test_char_map, 0); 
     printf("%s\n", format);
     return WRONG_MATCH;
   }
