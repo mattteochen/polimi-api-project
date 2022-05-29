@@ -617,20 +617,25 @@ static void get_char_map(const _uc *key, _ui *map)
   }
 }
 
-static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars)
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _uc *min_chars)
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
   get_char_map(target, char_map_target);
   get_char_map(test, char_map_test);
 
-  memset((void*)wrong_chars, 0, 256);
   /* create the wrong list in to compute on the trie */
+  memset((void*)wrong_chars, 0, 256);
+  memset((void*)min_chars, 0, 256);
   for (_ui i = 0; i < 256; i++)
   {
     if (char_map_test[i] && !char_map_target[i])
     {
       wrong_chars[i]++;
+    }
+    if (char_map_test[i] != char_map_target[i])
+    {
+      min_chars[i]++;
     }
   }
   
@@ -666,7 +671,7 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
   }
 }
 
-static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format)
+static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format, _uc *wrong_chars, _uc *min_chars)
 {
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
@@ -681,7 +686,7 @@ static _ui solve(MAP *map, const _uc *target, const _uc *test, _uc *format)
   }
   else
   {
-    format_match(target, test, format, size);
+    format_match(target, test, format, size, wrong_chars, min_chars);
     printf("%s\n", format);
     return WRONG_MATCH;
   }
