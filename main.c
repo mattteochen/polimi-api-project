@@ -896,7 +896,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
 {
   /* utils preparation */
   _uc *buffer = 0;
-  _uc *tester = malloc(11); /* max 32 bit integer */
+  _uc tester[12]; /* max 32 bit integer */
   _uc *target = 0;
   size_t str_len = 0;
 
@@ -915,7 +915,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
   _ui *test_char_map = (_ui*)mem_alloc;
   
   /* get the length of the strings */
-  getline((char**)&tester, &str_len, stdin);
+  fgets((char*)tester, 11, stdin);
   str_len = atoi((const char*)tester);
   str_len = (_ul)(str_len > 20 ? str_len : 20);
   buffer = memory_block->get_block(memory_block, str_len);
@@ -928,6 +928,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
   while (1)
   {
     if (!start_game) return;
+    start_game = 0;
 
     /* insid a game */
     _ui counter = 0;
@@ -972,6 +973,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
       /* command new game */
       else if (!memcmp((void*)buffer, (void*)c_str_new_match, sizeof(c_str_new_match)))
       {
+        start_game = 1;
         break;
       }
       /* check word */
@@ -989,7 +991,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
               wrong_pos, 
               needed_chars,
               test_char_map, 
-              &wrong_counter, shots) == WIN) {return;};
+              &wrong_counter, shots) == WIN) {};
       }
       counter++;
     }
