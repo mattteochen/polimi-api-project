@@ -6,7 +6,8 @@ INFO  = "[INFO] : "
 
 ret = os.system("clear && gcc -std=c11 main.c")
 if ret:
-    print(ERROR + "compilation erro")
+    print(ERROR + "compilation error")
+    exit(1)
 
 tests = os.listdir("./tests")
 
