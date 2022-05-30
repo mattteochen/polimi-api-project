@@ -15,20 +15,31 @@
 #include <string.h>
 
 /* DEFINES --------------------------------------------------------------------------------------------------------------- */
+
+#define LOCAL_TEST 1
+
 #define NOT_FOUND                       0x0
 #define WIN                             0x1
 #define NOT_EXISTS                      0x2
 #define WRONG_MATCH                     0x3
 #define TRIE_DELETE_KEY                 0x0
 #define TRIE_MAINTAIN_KEY               0x1
-#define DEFAULT_MEMORY_BLOCK            (1024u * 100000u)
+#define DEFAULT_MEMORY_BLOCK            (1024u * 1u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
+#if LOCAL_TEST == 1
 #define LOG_I(P)                        printf("[INFO] : %s\n",P);
 #define LOG_E(P)                        printf("[ERROR]: %s\n",P);
 #define LOG_INT(M,V)                    printf("[INFO] : %s %u\n", M, V);
 #define LOG_HEX(M,V)                    printf("[INFO] : %s 0x%lx\n", M, V);
 #define LOG_STR(M,V)                    printf("[INFO] : %s %s\n", M, V);
+#else
+#define LOG_I(P)    
+#define LOG_E(P)    
+#define LOG_INT(M,V)
+#define LOG_HEX(M,V)
+#define LOG_STR(M,V)
+#endif
 
 /* ALIAS ----------------------------------------------------------------------------------------------------------------- */
 typedef int32_t         _i;
@@ -133,12 +144,13 @@ typedef struct S_TRIE
   struct S_TRIE  *childs[256];  /* possible childs based on ACII, active status signaled by non zero pointer */
   _uc status[256];              /* signal if a path is active or not */
 
-  void(*add_node)   (struct S_TRIE*, MEMORY_BLOCK*, const _uc);
-  void(*insert_key) (struct S_TRIE*, MEMORY_BLOCK*, const _uc*, size_t, size_t);
-  void(*remove_key) (struct S_TRIE*, const _uc*, const size_t);
-  bool(*has_childs) (struct S_TRIE*);
-  bool(*find_key)   (struct S_TRIE*, const _uc*, const size_t, const size_t);
-  _uc(*clean)       (struct S_TRIE*, _uc*, const _uc*, const _uc*, const _uc*, const _ui*, const int32_t*, const _ui*, _ui*, const size_t);    
+  void(*add_node)    (struct S_TRIE*, MEMORY_BLOCK*, const _uc);
+  void(*insert_key)  (struct S_TRIE*, MEMORY_BLOCK*, const _uc*, size_t, size_t);
+  void(*remove_key)  (struct S_TRIE*, const _uc*, const size_t);
+  bool(*has_childs)  (struct S_TRIE*);
+  bool(*find_key)    (struct S_TRIE*, const _uc*, const size_t, const size_t);
+  _uc(*clean)        (struct S_TRIE*, int32_t*, _uc*, const _uc*, const _uc*, const _uc*, const _ui*, const int32_t*, const _ui*, _ui*, const size_t);    
+  void(*clean_status)(struct S_TRIE *);
 } TRIE;
 
 /* GLOOBAL VARIABLES ----------------------------------------------------------------------------------------------------- */
@@ -147,6 +159,10 @@ const _uc c_str_start_insert_keys[] = "+inserisci_inizio";
 const _uc c_str_end_insert_keys[]   = "+inserisci_fine";
 const _uc c_str_print_filtered[]    = "+stampa_filtrate";
 
+#if LOCAL_TEST == 1
+FILE *fp;
+#endif
+
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
 static void f_add_trie_node       (TRIE*, MEMORY_BLOCK*, const _uc);
 static void f_insert_key_trie     (TRIE*, MEMORY_BLOCK*, const _uc*, const size_t, size_t);
@@ -154,6 +170,7 @@ static void f_remove_key_trie     (TRIE*, const _uc*, size_t);
 static bool f_trie_node_has_child (TRIE*);
 static bool f_trie_find_key       (TRIE*, const _uc*, const size_t, const size_t);
 static _uc  f_trie_clean_keys(TRIE *,
+                              int32_t*,
                               _uc*,
                               const _uc*,
                               const _uc*,
@@ -162,7 +179,8 @@ static _uc  f_trie_clean_keys(TRIE *,
                               const int32_t*,
                               const _ui*,
                               _ui*,
-                              const size_t);;
+                              const size_t);
+static void f_trie_clean_status(TRIE *root);
 
 static void exit_if_dirty(_uc *ptr)
 {
@@ -506,13 +524,14 @@ static void f_add_trie_node(TRIE *root, MEMORY_BLOCK *memory_block, const _uc ke
   _uc *new_node = memory_block->get_block(memory_block, sizeof(TRIE));
   assert(new_node);
 
-  root->childs[key]             = (TRIE*)new_node;
-  root->childs[key]->add_node   = f_add_trie_node;
-  root->childs[key]->insert_key = f_insert_key_trie;
-  root->childs[key]->remove_key = f_remove_key_trie;
-  root->childs[key]->has_childs = f_trie_node_has_child;
-  root->childs[key]->find_key   = f_trie_find_key;
-  root->childs[key]->clean      = f_trie_clean_keys;
+  root->childs[key]               = (TRIE*)new_node;
+  root->childs[key]->add_node     = f_add_trie_node;
+  root->childs[key]->insert_key   = f_insert_key_trie;
+  root->childs[key]->remove_key   = f_remove_key_trie;
+  root->childs[key]->has_childs   = f_trie_node_has_child;
+  root->childs[key]->find_key     = f_trie_find_key;
+  root->childs[key]->clean        = f_trie_clean_keys;
+  root->childs[key]->clean_status = f_trie_clean_status;
 }
 
 static void f_insert_key_trie(TRIE *root, MEMORY_BLOCK *memory_block, const _uc *key, const size_t index, size_t size)
@@ -564,16 +583,30 @@ static bool f_trie_find_key(TRIE *root, const _uc *key, const size_t index, cons
   return 1 * root->find_key(root->childs[key[index]], key, index+1, size);
 }
 
+static void f_trie_clean_status(TRIE *root)
+{
+  if (!root || !root->has_childs(root)) return;
+  for (_ui i = 0; i < 256; i++)
+  {
+    if (root->childs[i])
+    {
+      root->status[i] = 1;
+      root->clean_status(root->childs[i]);
+    }
+  }
+}
+
 static _uc f_trie_clean_keys(TRIE *root,
+                             int32_t *available,
                              _uc *buffer,
-                              const _uc *target,
-                              const _uc *format,
-                              const _uc *wrong_chars,
-                              const _ui *wrong_chars_num,
-                              const int32_t *wrong_pos,
-                              const _ui *target_char_map,
-                              _ui *chars_map,
-                              const size_t index)
+                             const _uc *target,
+                             const _uc *format,
+                             const _uc *wrong_chars,
+                             const _ui *wrong_chars_num,
+                             const int32_t *wrong_pos,
+                             const _ui *needed_chars,
+                             _ui *chars_map,
+                             const size_t index)
 {
   if (!root)
   {
@@ -581,6 +614,7 @@ static _uc f_trie_clean_keys(TRIE *root,
   }
   if (!root->has_childs(root))
   {
+    (*available)++;
     return TRIE_MAINTAIN_KEY;
     //buffer[index] = '\0';
     /*  */
@@ -592,15 +626,11 @@ static _uc f_trie_clean_keys(TRIE *root,
         (root->childs[i] && wrong_pos[i] >= 0 && (wrong_pos[i] == index)))
         //(format[index] == '+' && !root->childs[target[index]]))
     {
-      printf("current: %c\n", i);
-      printf("subtree delete: %c\n", i);
       //TODO add number of childs field
       root->status[i] = 0;
     }
     else if (root->childs[i])
     {
-      printf("current: %c\n", i);
-      printf("rec for: %c\n", i);
       /* build the chars map recursively */
       chars_map[i]++;
       buffer[index] = i;
@@ -608,14 +638,36 @@ static _uc f_trie_clean_keys(TRIE *root,
       if (!root->childs[i]->has_childs(root->childs[i]))
       {
         buffer[index+1] = '\0';
+        /* check corrispondence with good chars in good positions */
         for (_ui j = 0 ; j < strlen((const char*)format); j++)
         {
-          if (format[j] == '+' && buffer[j] != target[j]) root->status[i] = 0;
+          if (format[j] == '+' && buffer[j] != target[j])
+          {
+            root->status[i] = 0;
+          }
         }
+        /* check if needed chars are there in this word */
+        for (_ui j = 0; j < 256; j++)
+        {
+          if (needed_chars[j] && !chars_map[j])
+          {
+            root->status[i] = 0;
+          }
+        }
+        /* check corrispondence of char count map */
+        for (_ui j = 0; j < 256; j++)
+        {
+          if (wrong_chars_num[j] && chars_map[j] == wrong_chars_num[j])
+          {
+            root->status[i] = 0;
+          }
+        }
+
+        if (root->status[i]) (*available)++;
       }
       else
       {
-        _uc do_delete = root->clean(root->childs[i], buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, target_char_map, chars_map, index+1); 
+        _uc do_delete = root->clean(root->childs[i], available, buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, needed_chars, chars_map, index+1); 
       }
       /* cleanup the map for this character */
       chars_map[i]--;
@@ -644,7 +696,11 @@ static void f_print_trie(TRIE *root, _uc *buffer, size_t index, const _ui target
   if (is_last)
   {
     buffer[index] = '\0';
-    if (strlen((const char*)buffer) == target_size) LOG_I(buffer);
+  #if LOCAL_TEST == 1
+    if (strlen((const char*)buffer) == target_size) fprintf(fp, "%s\n", buffer);
+  #else
+    if (strlen((const char*)buffer) == target_size) printf("%s\n", buffer);
+  #endif
   }
 }
 
@@ -658,7 +714,7 @@ static void get_char_map(const _uc *key, _ui *map)
   }
 }
 
-static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _ui *wrong_chars_num, int32_t *wrong_pos)
+static void format_match(const _uc *target, const _uc *test, _uc *format, const size_t size, _uc *wrong_chars, _ui *wrong_chars_num, int32_t *wrong_pos, _ui *needed_chars)
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
@@ -701,24 +757,30 @@ static void format_match(const _uc *target, const _uc *test, _uc *format, const 
       format[i] = '|';
       /* we can not have this char (test[i]) in this index (i) */
       wrong_pos[test[i]] = i;
+      /* add a needed character */
+      needed_chars[test[i]]++;
     }
   }
 
-  for (_ui i = 0; i < 256; i++)
-  {
-    if (wrong_chars[i])
-    {
-      printf("Wrong: %c\n", i);
-    }
-    if (wrong_chars_num[i])
-    {
-      printf("Wrong_num: %c .... Num: %u\n", i, wrong_chars_num[i]);
-    }
-    if (wrong_pos[i] >= 0)
-    {
-      printf("Wrong: %c ... Pos: %u\n", i, wrong_pos[i]);
-    }
-  }
+  //for (_ui i = 0; i < 256; i++)
+  //{
+  //  if (wrong_chars[i])
+  //  {
+  //    printf("WRONG CHAR: %c\n", i);
+  //  }
+  //  if (wrong_chars_num[i])
+  //  {
+  //    printf("WRONG CHAR FREQ: %c -> WRONG NUM: %u\n", i, wrong_chars_num[i]);
+  //  }
+  //  if (wrong_pos[i] >= 0)
+  //  {
+  //    printf("WRONG CHAR POS: %c -> POS: %u\n", i, wrong_pos[i]);
+  //  }
+  //  if (needed_chars[i])
+  //  {
+  //    printf("NEEDED CHAR: %c -> FREQ: %u\n", i, needed_chars[i]);
+  //  }
+  //}
 
   /* assing wrong */
   for (_ui i = 0; i < size; i++)
@@ -736,7 +798,7 @@ static _ui solve(TRIE *trie,
                  _uc *wrong_chars, 
                  _ui *wrong_chars_num, /* can be avoided */
                  int32_t *wrong_pos, 
-                 _ui *target_char_map, 
+                 _ui *needed_chars, 
                  _ui *test_char_map,
                  _ui *wrong_counter,
                  const _ui max_wrong)
@@ -744,25 +806,39 @@ static _ui solve(TRIE *trie,
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
   {
-    printf("---->ok\n");
+  #if LOCAL_TEST == 1
+    fprintf(fp, "ok\n");
+  #else
+    printf("ok\n");
+  #endif
     (*wrong_counter)++;
     return WIN;
   }
   else if (trie->find_key(trie, test, 0, strlen((const char*)test)) == NOT_FOUND)
   {
-    printf("---->not_exists\n"); 
+  #if LOCAL_TEST == 1
+    fprintf(fp, "not_exists\n");
+  #else
+    printf("not_exists\n"); 
+  #endif
     return NOT_EXISTS;
   }
   else
   {
-    /* build the test char map */
-    get_char_map(test, test_char_map);
-    format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos);
-    trie->clean(trie, buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, target_char_map, test_char_map, 0); 
-    printf("---->%s\n", format);
-    //f_print_trie(trie, format, 0);
+    int32_t available = 0;
+    format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos, needed_chars);
+    trie->clean(trie, &available, buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, needed_chars, test_char_map, 0); 
+  #if LOCAL_TEST == 1
+    fprintf(fp, "%s, %u\n", format, available);
+  #else
+    printf("%s, %u\n", format, available);
+  #endif
     (*wrong_counter)++;
-    if ((*wrong_counter) >= max_wrong) printf("---->ko\n");
+  #if LOCAL_TEST == 1
+    if ((*wrong_counter) >= max_wrong) fprintf(fp, "ko\n");
+  #else
+    if ((*wrong_counter) >= max_wrong) printf("ko\n");
+  #endif
     return WRONG_MATCH;
   }
 }
@@ -770,13 +846,14 @@ static _ui solve(TRIE *trie,
 static TRIE *f_get_new_trie(MEMORY_BLOCK *memory_block)
 {
   _uc *new_node = memory_block->get_block(memory_block, sizeof(TRIE));
-  TRIE *trie        = (TRIE*)new_node;
-  trie->add_node    = f_add_trie_node;
-  trie->insert_key  = f_insert_key_trie;
-  trie->remove_key  = f_remove_key_trie;
-  trie->has_childs  = f_trie_node_has_child;
-  trie->find_key    = f_trie_find_key;
-  trie->clean       = f_trie_clean_keys;
+  TRIE *trie         = (TRIE*)new_node;
+  trie->add_node     = f_add_trie_node;
+  trie->insert_key   = f_insert_key_trie;
+  trie->remove_key   = f_remove_key_trie;
+  trie->has_childs   = f_trie_node_has_child;
+  trie->find_key     = f_trie_find_key;
+  trie->clean        = f_trie_clean_keys;
+  trie->clean_status =f_trie_clean_status; 
   return trie;
 }
 
@@ -824,19 +901,19 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
   size_t str_len = 0;
 
   /* helper buffers */
-  _uc *mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
-  _ui *target_char_map = (_ui*)mem_alloc;
-  mem_alloc = memory_block->get_block(memory_block, 256);
+  _uc *mem_alloc = memory_block->get_block(memory_block, 256);
   _uc *wrong_chars = mem_alloc;
   mem_alloc = memory_block->get_block(memory_block, 256);
   _uc *str_buffer = mem_alloc;
+  mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
+  _ui *needed_chars = (_ui*)mem_alloc;
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *wrong_chars_num = (_ui*)mem_alloc;
   mem_alloc = memory_block->get_block(memory_block, sizeof(int32_t)*256);
   int32_t *wrong_pos = (int32_t*)mem_alloc;
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *test_char_map = (_ui*)mem_alloc;
-
+  
   /* get the length of the strings */
   getline((char**)&tester, &str_len, stdin);
   str_len = atoi((const char*)tester);
@@ -871,6 +948,10 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
         memset((void*)wrong_pos, -1, sizeof(int32_t)*256);
         memset((void*)wrong_chars, 0, sizeof(_uc)*256);
         memset((void*)wrong_chars_num, 0, sizeof(_ui)*256);
+        memset((void*)needed_chars, 0, sizeof(_ui)*256);
+
+        /* clean old flags */
+        trie->clean_status(trie);
       }
       /* the second represent how many shots */
       else if (counter == 1)
@@ -906,9 +987,9 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
               wrong_chars, 
               wrong_chars_num, 
               wrong_pos, 
-              target_char_map, 
+              needed_chars,
               test_char_map, 
-              &wrong_counter, shots) == WIN) return;
+              &wrong_counter, shots) == WIN) {return;};
       }
       counter++;
     }
@@ -939,8 +1020,14 @@ int main(int argc, char *argv[])
   /* init trie root */
   TRIE *trie = f_get_new_trie(&memory_block);
 
+#if LOCAL_TEST == 1
+  fp = fopen("out.txt", "w");
+#endif
   /* test */
   test(&map, trie, &memory_block);
+#if LOCAL_TEST == 1
+  fclose(fp);
+#endif
 
   /* deallocate all sources */
   memory_block.deinit(&memory_block);
