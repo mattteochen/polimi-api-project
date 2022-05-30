@@ -829,9 +829,9 @@ static _ui solve(TRIE *trie,
     format_match(target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos, needed_chars);
     trie->clean(trie, &available, buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, needed_chars, test_char_map, 0); 
   #if LOCAL_TEST == 1
-    fprintf(fp, "%s, %u\n", format, available);
+    fprintf(fp, "%s\n%u\n", format, available);
   #else
-    printf("%s, %u\n", format, available);
+    printf("%s\n%u\n", format, available);
   #endif
     (*wrong_counter)++;
   #if LOCAL_TEST == 1
