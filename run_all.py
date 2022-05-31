@@ -18,7 +18,7 @@ for test in tests:
 
 for test in ins:
     print(ins[test]["in"])
-    ret = os.system("./a.out <" + f'./tests/{ins[test]["in"]}')
+    ret = os.system("./a.out <" + f'./tests/{ins[test]["in"]}' + "> out.txt")
     if ret:
         print(ERROR + "Failed to run test: " + test)
     print(INFO + "Test: " + test + " result: " + str(filecmp.cmp(f'./tests/{ins[test]["out"]}', "out.txt", shallow=False)))
