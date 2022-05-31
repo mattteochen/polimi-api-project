@@ -24,7 +24,7 @@
 #define WRONG_MATCH                     0x3
 #define TRIE_DELETE_KEY                 0x0
 #define TRIE_MAINTAIN_KEY               0x1
-#define DEFAULT_MEMORY_BLOCK            (1024u * 10000u)
+#define DEFAULT_MEMORY_BLOCK            (1024u * 1u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
 #if LOCAL_TEST == 1
