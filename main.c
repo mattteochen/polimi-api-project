@@ -163,7 +163,18 @@ typedef struct S_TRIE
   void(*remove_key)  (struct S_TRIE*, const _uc*, const size_t);
   bool(*has_childs)  (struct S_TRIE*);
   bool(*find_key)    (struct S_TRIE*, const _uc*, const size_t, const size_t);
-  _uc(*clean)        (struct S_TRIE*, int32_t*, _uc*, const _uc*, const _uc*, const _uc*, const _ui*, const int32_t*, const CHAR_COUNTER*, _ui*, const size_t);    
+  _uc(*clean)        (struct S_TRIE*, 
+                      int32_t*, 
+                      _uc*, 
+                      const _uc*, 
+                      const _uc*, 
+                      const _uc*, 
+                      const _ui*, 
+                      const int32_t*, 
+                      const CHAR_COUNTER*, 
+                      const CHAR_COUNTER_INTERNAL*[], 
+                      _ui*, 
+                      const size_t);    
   void(*clean_status)(struct S_TRIE *);
 } TRIE;
 
@@ -192,6 +203,7 @@ static _uc  f_trie_clean_keys(TRIE *,
                               const _ui*,
                               const int32_t*,
                               const CHAR_COUNTER*,
+                              const CHAR_COUNTER_INTERNAL*[],
                               _ui*,
                               const size_t);
 static void f_trie_clean_status(TRIE *root);
@@ -619,6 +631,7 @@ static _uc f_trie_clean_keys(TRIE *root,
                              const _ui *wrong_chars_num,
                              const int32_t *wrong_pos,
                              const CHAR_COUNTER *needed_chars,
+                             const CHAR_COUNTER_INTERNAL *exact_char_map[],
                              _ui *chars_map,
                              const size_t index)
 {
@@ -635,6 +648,7 @@ static _uc f_trie_clean_keys(TRIE *root,
   }
   for (_ui i = 0; i < 256; i++)
   {
+    if (!root->status[i]) continue;
     /* delete all the subtrees with this character or wrong position, no more recursion needed */
     if ((root->childs[i] && wrong_chars[i]) || 
         (root->childs[i] && wrong_pos[i] >= 0 && (wrong_pos[i] == index)))
@@ -667,10 +681,30 @@ static _uc f_trie_clean_keys(TRIE *root,
         /* check if needed chars are there in this word */
         for (_ui j = 0; j < 256; j++)
         {
-          if (needed_chars[j].counter && !chars_map[j])
+          if (needed_chars[j].counter && chars_map[j] < needed_chars[j].counter)
           {
             //printf("LEAF, NEEDED CHARS NOT FOUND FOR: %c --> %s\n", j, buffer);
             root->status[i] = 0;
+          }
+        }
+        /* check for exact characters */
+        _uc do_exit = 0;
+        for (_ui j = 0; j < 256 && !do_exit; j++)
+        {
+          if (exact_char_map[j])
+          {
+            CHAR_COUNTER_INTERNAL *finder = (CHAR_COUNTER_INTERNAL*)exact_char_map[j];
+            while (finder)
+            {
+              if (buffer[finder->target_index] != j)
+              {
+                //printf("DELETING %c NOT PRESENT IN INDEX: %u, buffer: %s\n", j, finder->target_index, buffer);
+                root->status[i] = 0;
+                do_exit = 1;
+                break;
+              }
+              finder = finder->next;
+            }
           }
         }
         /* check corrispondence of char count map */
@@ -694,7 +728,8 @@ static _uc f_trie_clean_keys(TRIE *root,
                                     wrong_chars, 
                                     wrong_chars_num, 
                                     wrong_pos, 
-                                    needed_chars, 
+                                    needed_chars,
+                                    exact_char_map,
                                     chars_map, 
                                     index+1); 
       }
@@ -754,11 +789,34 @@ static _uc f_check_index_char_counter(CHAR_COUNTER_INTERNAL *counter, const _ui 
   return 0;
 }
 
+static _uc f_add_to_char_counter_internal(MEMORY_BLOCK *memory_block, CHAR_COUNTER_INTERNAL *root[], const _uc target, const _ui index)
+{
+  _uc *alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER_INTERNAL));
+  CHAR_COUNTER_INTERNAL *new_node = (CHAR_COUNTER_INTERNAL*)alloc;
+  new_node->next = 0;
+  new_node->target_index = index;
+  if (!root[target])
+  {
+    /* new head */
+    root[target] = new_node;
+    return 1;
+  }
+  else if (!f_check_index_char_counter(root[target], index))
+  {
+    /* head insert */
+    new_node->next = root[target];
+    root[target] = new_node;
+    return 1; 
+  }
+  return 0;
+}
+
 static void f_add_to_char_counter(MEMORY_BLOCK *memory_block, CHAR_COUNTER *counter, const _uc target, const _ui index)
 {
   _uc *alloc = 0;
   if (!counter[target].head)
   {
+    /* new head */
     alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER_INTERNAL));
     CHAR_COUNTER_INTERNAL *new_node = (CHAR_COUNTER_INTERNAL*)alloc;
     new_node->next = 0;
@@ -770,6 +828,7 @@ static void f_add_to_char_counter(MEMORY_BLOCK *memory_block, CHAR_COUNTER *coun
   /* check if this index is already present */
   else if (!f_check_index_char_counter(counter[target].head, index))
   {
+    /* tail insert */
     alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER_INTERNAL));
     CHAR_COUNTER_INTERNAL *new_node = (CHAR_COUNTER_INTERNAL*)alloc;
     new_node->next = 0;
@@ -788,7 +847,8 @@ static void format_match(MEMORY_BLOCK *memory_block,
                          _uc *wrong_chars, 
                          _ui *wrong_chars_num, 
                          int32_t *wrong_pos, 
-                         CHAR_COUNTER *needed_chars)
+                         CHAR_COUNTER *needed_chars,
+                         CHAR_COUNTER_INTERNAL *exact_char_map[])
 {
   _ui char_map_target[256] = {0};
   _ui char_map_test[256] = {0};
@@ -818,7 +878,8 @@ static void format_match(MEMORY_BLOCK *memory_block,
       format[i] = '+';
       char_map_target[target[i]]--;
       char_map_test[test[i]]--;
-      f_add_to_char_counter(memory_block, needed_chars, test[i], i);
+      //f_add_to_char_counter(memory_block, needed_chars, test[i], i);
+      f_add_to_char_counter_internal(memory_block, exact_char_map, target[i], i);
     }
   }
 
@@ -833,10 +894,30 @@ static void format_match(MEMORY_BLOCK *memory_block,
       /* we can not have this char (test[i]) in this index (i) */
       wrong_pos[test[i]] = i;
       /* add a needed character */
-      f_add_to_char_counter(memory_block, needed_chars, test[i], i);
+      //f_add_to_char_counter(memory_block, needed_chars, target[i], i);
       //needed_chars[test[i]]++;
     }
   }
+
+  //for (_ui i = 0; i < size; i++)
+  //{
+  //  if (format[i] != '|') continue;
+  //  for (_ui j = i+1; j < size; j++)
+  //  {
+  //    if (i == j || format[j] != '|') continue;
+  //    if (target[i] == test[j] && test[i] == target[j]) 
+  //    {
+  //      f_add_to_char_counter(memory_block, needed_chars, target[j], i);
+  //      f_add_to_char_counter(memory_block, needed_chars, test[i], j);
+  //      f_add_to_char_counter_internal(memory_block, exact_char_map, test[i], j);
+  //      f_add_to_char_counter_internal(memory_block, exact_char_map, test[j], i);
+  //    }
+  //    else
+  //    {
+  //      f_add_to_char_counter(memory_block, needed_chars, test[i], i);
+  //    }
+  //  }
+  //}
 
   printf("#####################################\n");
   printf("TEST:   %s\nTARGET: %s\n", test, target);
@@ -848,7 +929,7 @@ static void format_match(MEMORY_BLOCK *memory_block,
     }
     if (wrong_chars_num[i])
     {
-      printf("WRONG CHAR FREQ: %c -> WRONG NUM: %u\n", i, wrong_chars_num[i]);
+      //printf("WRONG CHAR FREQ: %c -> WRONG NUM: %u\n", i, wrong_chars_num[i]);
     }
     if (wrong_pos[i] >= 0)
     {
@@ -857,6 +938,28 @@ static void format_match(MEMORY_BLOCK *memory_block,
     if (needed_chars[i].head)
     {
       printf("NEEDED CHAR: %c -> FREQ: %u\n", i, needed_chars[i].counter);
+    }
+  }
+
+  for (_ui j = 0; j < 256; j++)
+  {
+    if (exact_char_map[j])
+    {
+      CHAR_COUNTER_INTERNAL *finder = exact_char_map[j];
+      while (finder)
+      {
+        printf("EXACT: %c -> %u\n", j, finder->target_index);
+        finder = finder->next;
+      }
+    }
+    if (needed_chars[j].head)
+    {
+      CHAR_COUNTER_INTERNAL *finder = needed_chars[j].head;
+      while (finder)
+      {
+        printf("NEEDED: %c -> %u\n", j, finder->target_index);
+        finder = finder->next;
+      }
     }
   }
 
@@ -881,6 +984,7 @@ static _ui solve(TRIE *trie,
                  _ui *wrong_chars_num, /* can be avoided */
                  int32_t *wrong_pos, 
                  CHAR_COUNTER *needed_chars, 
+                 CHAR_COUNTER_INTERNAL *exact_char_map[],
                  _ui *test_char_map,
                  _ui *wrong_counter,
                  const _ui max_wrong)
@@ -908,8 +1012,29 @@ static _ui solve(TRIE *trie,
   else
   {
     int32_t available = 0;
-    format_match(memory_block, target, test, format, size, wrong_chars, wrong_chars_num, wrong_pos, needed_chars);
-    trie->clean(trie, &available, buffer, target, format, wrong_chars, wrong_chars_num, wrong_pos, needed_chars, test_char_map, 0); 
+    format_match(memory_block, 
+                 target, 
+                 test, 
+                 format, 
+                 size, 
+                 wrong_chars, 
+                 wrong_chars_num, 
+                 wrong_pos, 
+                 needed_chars, 
+                 exact_char_map);
+    
+
+    trie->clean(trie, 
+                &available, 
+                buffer, 
+                target, 
+                format, 
+                wrong_chars, 
+                wrong_chars_num, 
+                wrong_pos, 
+                needed_chars, 
+                exact_char_map, 
+                test_char_map, 0); 
   #if LOCAL_TEST == 1
     fprintf(fp, "%s\n%u\n", format, available);
   #else
@@ -921,6 +1046,7 @@ static _ui solve(TRIE *trie,
   #else
     if ((*wrong_counter) >= max_wrong) printf("ko\n");
   #endif
+    //f_print_trie(trie, format, 0, strlen((const char*)format));
     return WRONG_MATCH;
   }
 }
@@ -999,6 +1125,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *test_char_map = (_ui*)mem_alloc;
   CHAR_COUNTER needed_chars[256];
+  CHAR_COUNTER_INTERNAL *exact_char_map[256];
   
   /* get the length of the strings */
   fgets((char*)tester, 11, stdin);
@@ -1036,6 +1163,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
         memset((void*)wrong_chars, 0, sizeof(_uc)*256);
         memset((void*)wrong_chars_num, 0, sizeof(_ui)*256);
         memset((void*)needed_chars, 0, sizeof(CHAR_COUNTER)*256);
+        memset((void*)exact_char_map, 0, sizeof(CHAR_COUNTER_INTERNAL*)*256);
 
         /* clean old flags */
         trie->clean_status(trie);
@@ -1078,6 +1206,7 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
               wrong_chars_num, 
               wrong_pos, 
               needed_chars,
+              exact_char_map,
               test_char_map, 
               &wrong_counter, shots) == WIN) {};
       }
