@@ -24,7 +24,7 @@
 #define WRONG_MATCH                     0x3
 #define TRIE_DELETE_KEY                 0x0
 #define TRIE_MAINTAIN_KEY               0x1
-#define DEFAULT_MEMORY_BLOCK            (1024u * 1u)
+#define DEFAULT_MEMORY_BLOCK            (1024u * 10000u)
 #define DEFAULT_MAP_BLOCK_LIST_LEN      1024u
 #define NOT_NULL_PRT(P)                 P != NULL
 #if LOCAL_TEST == 1
@@ -256,7 +256,11 @@ static void f_deinit_memory_block(MEMORY_BLOCK *block)
   MEMORY_BLOCK_NODE *finder_prev = 0;
   while (finder)
   {
-    if (finder_prev) free(finder_prev->start);
+    if (finder_prev)
+    {
+      free(finder_prev->start);
+      free(finder_prev);
+    }
     finder_prev = finder;
     finder = finder->next;
   }
