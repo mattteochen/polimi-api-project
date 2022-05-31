@@ -676,8 +676,8 @@ static _uc f_trie_clean_keys(TRIE *root,
           CHAR_COUNTER_INTERNAL *finder = avoid_char_pos[j].head;
           while (finder)
           {
-            _ui index = finder->target_index;
-            if (buffer[index] == j)
+            _ui _index = finder->target_index;
+            if (buffer[_index] == j)
             {
               root->status[i] = 0;
               end = 1;
@@ -694,8 +694,8 @@ static _uc f_trie_clean_keys(TRIE *root,
           CHAR_COUNTER_INTERNAL *finder = exact_char_pos[j].head;
           while (finder)
           {
-            _ui index = finder->target_index;
-            if (buffer[index] != j)
+            _ui _index = finder->target_index;
+            if (buffer[_index] != j)
             {
               root->status[i] = 0;
               end = 1;
