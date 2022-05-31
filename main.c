@@ -264,7 +264,11 @@ static void f_deinit_memory_block(MEMORY_BLOCK *block)
     finder_prev = finder;
     finder = finder->next;
   }
-  if (finder_prev) free(finder_prev->start);
+  if (finder_prev)
+  {
+    free(finder_prev->start);
+    free(finder_prev);
+  }
   LOG_I("Memory block deallocation complete");
 }
 
