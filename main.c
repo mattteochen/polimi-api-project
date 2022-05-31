@@ -166,7 +166,6 @@ typedef struct S_TRIE
   void(*clean)        (struct S_TRIE*, 
                       int32_t*, 
                       _uc*, 
-                      const _uc *target,
                       const _uc *format,
                       _uc *wrong_chars, 
                       _ui *min_counter, 
@@ -189,8 +188,6 @@ const _uc c_str_print_filtered[]    = "+stampa_filtrate";
 FILE *fp;
 #endif
 
-FILE *t;
-
 /* LIBRARY FUNCTION DEFINITION ------------------------------------------------------------------------------------------- */
 static void f_add_trie_node       (TRIE*, MEMORY_BLOCK*, const _uc);
 static void f_insert_key_trie     (TRIE*, MEMORY_BLOCK*, const _uc*, const size_t, size_t);
@@ -200,7 +197,6 @@ static bool f_trie_find_key       (TRIE*, const _uc*, const size_t, const size_t
 static void f_trie_clean_keys(TRIE *root,
                              int32_t *available,
                              _uc *buffer,
-                             const _uc *target,
                              const _uc *format,
                              _uc *wrong_chars, 
                              _ui *min_counter, 
@@ -211,15 +207,6 @@ static void f_trie_clean_keys(TRIE *root,
                              _ui *chars_map,
                              const size_t index);
 static void f_trie_clean_status(TRIE *root);
-
-//static void exit_if_dirty(_uc *ptr)
-//{
-//  if (NOT_NULL_PRT(ptr))
-//  {
-//    LOG_E("Pointer failure, not null during init\n")
-//    exit(EXIT_FAILURE);
-//  }
-//}
 
 static void f_insert_inner_map_node_list(const _ui index,
                                          const _uc *key,
@@ -629,7 +616,6 @@ static void f_trie_clean_status(TRIE *root)
 static void f_trie_clean_keys(TRIE *root,
                              int32_t *available,
                              _uc *buffer,
-                             const _uc *target,
                              const _uc *format,
                              _uc *wrong_chars, 
                              _ui *min_counter, 
@@ -740,17 +726,17 @@ static void f_trie_clean_keys(TRIE *root,
       else
       {
         root->clean(root->childs[i], 
-                                    available, buffer, 
-                                    target, 
-                                    format, 
-                                    wrong_chars, 
-                                    min_counter,
-                                    exact_char_counter,
-                                    min_counter_finalized, 
-                                    exact_char_pos, 
-                                    avoid_char_pos,
-                                    chars_map, 
-                                    index+1); 
+                    available, 
+                    buffer, 
+                    format, 
+                    wrong_chars, 
+                    min_counter,
+                    exact_char_counter,
+                    min_counter_finalized, 
+                    exact_char_pos, 
+                    avoid_char_pos,
+                    chars_map, 
+                    index+1); 
       }
       /* cleanup the frequency map*/
       chars_map[i]--;
@@ -807,7 +793,6 @@ static void f_print_trie(TRIE *root, _uc *buffer, size_t index, const _ui target
   #else
     if (strlen((const char*)buffer) == target_size) printf("%s\n", buffer);
   #endif
-
   }
 }
 
@@ -937,7 +922,11 @@ static void format_match(MEMORY_BLOCK *memory_block,
       
       /* finalize the counter */
       min_counter_finalized[test[i]] = true;
-      exact_char_counter[test[i]] = min_counter_cp[test[i]]; //TODO check min_counter_cp if error
+      /* ok sign the viewed labels */
+      exact_char_counter[test[i]] = min_counter_cp[test[i]];
+
+      /* sign position to avoid for this char */
+      f_add_index_to_char_list(memory_block, avoid_char_pos, test[i], i);
 
       /* sign the chars to avoid if not present */
       if (char_map_target_cp[test[i]] == 0)
@@ -965,8 +954,6 @@ static void format_match(MEMORY_BLOCK *memory_block,
   {
     min_counter[i] = (min_counter[i] > min_counter_cp[i] ? min_counter[i] : min_counter_cp[i]);
   }
-
-  //printf("FORMAT: %s\n", format);
 }
 
 static _ui solve(TRIE *trie,
@@ -985,17 +972,13 @@ static _ui solve(TRIE *trie,
                  _ui *wrong_counter,
                  const _ui max_wrong)
 {
-  /* do nothing if the limit has been reached */
-  if ((*wrong_counter) >= max_wrong) return WRONG_MATCH;
-
   const size_t size = strlen((const char*)target);
   if (memcmp((const void*)target, (const void*)test, size) == 0)
   {
   #if LOCAL_TEST == 1
     fprintf(fp, "ok\n");
   #else
-    printf("ok, %s\n", target);
-    //printf("ok\n");
+    printf("ok\n");
   #endif
     return WIN;
   }
@@ -1027,7 +1010,6 @@ static _ui solve(TRIE *trie,
     trie->clean(trie, 
                 &available, 
                 buffer, 
-                target, 
                 format, 
                 wrong_chars, 
                 min_counter,
@@ -1041,14 +1023,6 @@ static _ui solve(TRIE *trie,
   #else
     printf("%s\n%u\n", format, available);
   #endif
-    
-    //if (available == 2443)
-    //{
-    //  printf("start\n");
-    //  f_print_trie_2(trie, buffer, 0, strlen((const char*)target));
-    //  printf("end\n");
-    //}
-
     (*wrong_counter)++;
   #if LOCAL_TEST == 1
     if ((*wrong_counter) >= max_wrong) fprintf(fp, "ko\n");
@@ -1209,6 +1183,19 @@ void test(MAP *map, TRIE *trie, MEMORY_BLOCK *memory_block)
       else if (!memcmp((void*)buffer, (void*)c_str_start_insert_keys, sizeof(c_str_start_insert_keys)))
       {
         f_add_words(trie, memory_block, buffer, str_len); 
+        int32_t available;
+        /* clean new words, point of optimization */
+        trie->clean(trie, 
+                    &available, 
+                    buffer, 
+                    format, 
+                    wrong_chars, 
+                    min_counter,
+                    exact_char_counter,
+                    min_counter_finalized, 
+                    exact_char_pos, 
+                    avoid_char_pos,
+                    test_char_map, 0); 
       }
       /* command new game */
       else if (!memcmp((void*)buffer, (void*)c_str_new_match, sizeof(c_str_new_match)))
@@ -1267,8 +1254,6 @@ int main(int argc, char *argv[])
   /* init trie root */
   TRIE *trie = f_get_new_trie(&memory_block);
 
-  t = fopen("debug.txt", "w");
-
 #if LOCAL_TEST == 1
   fp = fopen("out.txt", "w");
 #endif
@@ -1277,8 +1262,6 @@ int main(int argc, char *argv[])
 #if LOCAL_TEST == 1
   fclose(fp);
 #endif
-
-  fclose(t);
 
   /* deallocate all sources */
   memory_block.deinit(&memory_block);
