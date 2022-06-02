@@ -1,2 +1,4 @@
 *.out
 out/*.txt
+.DS_Store
+out.txt
