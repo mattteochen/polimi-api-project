@@ -5,7 +5,7 @@
  *
  * */
 
-#include <assert.h>
+//#include <assert.h>
 #include <stdbool.h>
 #include <math.h>
 #include <stddef.h>
@@ -16,13 +16,14 @@
 
 /* DEFINES --------------------------------------------------------------------------------------------------------------- */
 
-#define LOCAL_TEST 1
+#define LOCAL_TEST 0
 
 #define NOT_FOUND                       0x0
 #define WIN                             0x1
 #define NOT_EXISTS                      0x2
 #define WRONG_MATCH                     0x3
-#define DEFAULT_MEMORY_BLOCK            (1024u * 1u)
+#define DEFAULT_MEMORY_BLOCK            (64 * 1u)
+#define DEFAULT_MEMORY_BLOCK_BITS       6
 #define NOT_NULL_PRT(P)                 P != NULL
 #if LOCAL_TEST == 1
 #define LOG_I(P)                        printf("[INFO] : %s\n",P);
@@ -106,8 +107,8 @@ typedef struct S_TRIE
                       _ui *min_counter, 
                       _ui *exact_char_counter, 
                       bool *min_counter_finalized,
-                      CHAR_COUNTER *exact_char_pos,
-                      CHAR_COUNTER *avoid_char_pos,
+                      _ui **exact_char_pos,
+                      _ui **avoid_char_pos,
                       _ui*, 
                       const _ui);    
   void(*clean_status)(struct S_TRIE *);
@@ -140,8 +141,8 @@ static void f_trie_clean_keys(TRIE *root,
                              _ui *min_counter, 
                              _ui *exact_char_counter, 
                              bool *min_counter_finalized,
-                             CHAR_COUNTER *exact_char_pos,
-                             CHAR_COUNTER *avoid_char_pos,
+                             _ui **exact_char_pos,
+                             _ui **avoid_char_pos,
                              _ui *chars_map,
                              const _ui index);
 static void f_trie_clean_status(TRIE *root);
@@ -149,14 +150,14 @@ static void f_trie_clean_status(TRIE *root);
 static void f_allocate_new_memory_block_node(MEMORY_BLOCK_NODE *node, const _ul size)
 {
   node->start = (_uc*)calloc(size, sizeof(_uc));
-  assert(node->start);
+  //assert(node->start);
   node->current = node->start;
   node->end = node->start + size;
 }
 
 static void f_init_memory_block(MEMORY_BLOCK *block, _ul size)
 {
-  assert(block);
+  //assert(block);
 
   /* create new memory block node */
   MEMORY_BLOCK_NODE *new_node = calloc(1, sizeof(MEMORY_BLOCK_NODE));
@@ -172,7 +173,7 @@ static void f_init_memory_block(MEMORY_BLOCK *block, _ul size)
 
 static void f_add_memory_block_node(MEMORY_BLOCK *block, const _ul size)
 {
-  assert(block);
+  //assert(block);
 
   /* create new memory block node */
   MEMORY_BLOCK_NODE *new_node = calloc(1, sizeof(MEMORY_BLOCK_NODE));
@@ -209,11 +210,11 @@ static void f_deinit_memory_block(MEMORY_BLOCK *block)
 
 static _uc *f_get_memory_block(MEMORY_BLOCK *block, _ul size)
 {
-  assert(block->finder);
-  assert(size > 0);
+  //assert(block->finder);
+  //assert(size > 0);
   if (block->finder->current+size > block->finder->end)
   {
-    _ul new_size = (size > DEFAULT_MEMORY_BLOCK ? ((size/DEFAULT_MEMORY_BLOCK)+1)*DEFAULT_MEMORY_BLOCK : DEFAULT_MEMORY_BLOCK);
+    _ul new_size = (size > DEFAULT_MEMORY_BLOCK ? ((size >> DEFAULT_MEMORY_BLOCK_BITS)+1) << DEFAULT_MEMORY_BLOCK_BITS : DEFAULT_MEMORY_BLOCK);
     LOG_I("Allocating new block node");
     block->add_block(block, new_size);
   }
@@ -226,7 +227,7 @@ static _uc *f_get_memory_block(MEMORY_BLOCK *block, _ul size)
 static void f_add_trie_node(TRIE *root, MEMORY_BLOCK *memory_block, const _uc key)
 {
   _uc *new_node = memory_block->get_block(memory_block, sizeof(TRIE));
-  assert(new_node);
+  //assert(new_node);
 
   root->childs[cm[key]]               = (TRIE*)new_node;
   root->childs[cm[key]]->add_node     = f_add_trie_node;
@@ -309,8 +310,8 @@ static void f_trie_clean_keys(TRIE *root,
                              _ui *min_counter, 
                              _ui *exact_char_counter, 
                              bool *min_counter_finalized,
-                             CHAR_COUNTER *exact_char_pos,
-                             CHAR_COUNTER *avoid_char_pos,
+                             _ui **exact_char_pos,
+                             _ui **avoid_char_pos,
                              _ui *chars_map,
                              const _ui index)
 {
@@ -329,7 +330,7 @@ static void f_trie_clean_keys(TRIE *root,
     if (!root->status[cm[i]]) continue;
 
     /* delete all the subtrees with this character or wrong position, no more recursion needed */
-    if (root->childs[cm[i]] && wrong_chars[i])
+    if ((root->childs[cm[i]] && wrong_chars[i]) || avoid_char_pos[i][index])
     {
       root->status[cm[i]] = 0;
     }
@@ -349,36 +350,14 @@ static void f_trie_clean_keys(TRIE *root,
         /* control wrong characters in wrong position */
         for (_ui j = 0; j < 256 && !end; j++)
         {
-          if (!avoid_char_pos[j].head) continue;
-          CHAR_COUNTER_INTERNAL *finder = avoid_char_pos[j].head;
-          while (finder)
+          for (_ui k = 0; k < strlen((const char*)buffer); k++)
           {
-            _ui _index = finder->target_index;
-            if (buffer[_index] == j)
+            if (exact_char_pos[j][k] && buffer[k] != j)
             {
               root->status[cm[i]] = 0;
               end = 1;
               break;
             }
-            finder = finder->next;
-          }
-        }
-
-        /* check corrispondence with good chars in good positions */
-        for (_ui j = 0; j < 256 && !end; j++)
-        {
-          if (!exact_char_pos[j].head) continue;
-          CHAR_COUNTER_INTERNAL *finder = exact_char_pos[j].head;
-          while (finder)
-          {
-            _ui _index = finder->target_index;
-            if (buffer[_index] != j)
-            {
-              root->status[cm[i]] = 0;
-              end = 1;
-              break;
-            }
-            finder = finder->next;
           }
         }
 
@@ -472,41 +451,6 @@ static void get_char_map(const _uc *key, _ui *map)
   }
 }
 
-static _uc f_check_index_char_counter(CHAR_COUNTER_INTERNAL *counter, const _ui target)
-{
-  CHAR_COUNTER_INTERNAL *finder = counter;
-  while (finder)
-  {
-    if (finder->target_index == target) return 1;
-    finder = finder->next;
-  }
-  return 0;
-}
-
-static void f_add_index_to_char_list(MEMORY_BLOCK *memory_block, CHAR_COUNTER *counter, const _uc target, const _ui index)
-{
-  _uc *alloc = 0;
-  if (!counter[target].head)
-  {
-    /* new head */
-    alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER_INTERNAL));
-    CHAR_COUNTER_INTERNAL *new_node = (CHAR_COUNTER_INTERNAL*)alloc;
-    new_node->next = 0;
-    new_node->target_index = index;
-    counter[target].head = new_node;
-  }
-  /* check if this index is already present */
-  else if (!f_check_index_char_counter(counter[target].head, index))
-  {
-    /* head insert */
-    alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER_INTERNAL));
-    CHAR_COUNTER_INTERNAL *new_node = (CHAR_COUNTER_INTERNAL*)alloc;
-    new_node->next = counter[target].head;
-    new_node->target_index = index;
-    counter[target].head = new_node;
-  }
-}
-
 static void format_match(MEMORY_BLOCK *memory_block,
                          const _uc *target, 
                          const _uc *test, 
@@ -516,8 +460,8 @@ static void format_match(MEMORY_BLOCK *memory_block,
                          _ui *min_counter,
                          _ui *exact_char_counter,
                          bool *min_counter_finalized,
-                         CHAR_COUNTER *exact_char_pos,
-                         CHAR_COUNTER *avoid_char_pos,
+                         _ui **exact_char_pos,
+                         _ui **avoid_char_pos,
                          _ui *char_map_target,
                          _ui *char_map_target_cp,
                          _ui *char_map_test,
@@ -545,7 +489,7 @@ static void format_match(MEMORY_BLOCK *memory_block,
 
       /* sign the exact positions */
       /* the char test[i] must be at index i */
-      f_add_index_to_char_list(memory_block, exact_char_pos, test[i], i);
+      exact_char_pos[test[i]][i] = 1;
 
       /* bring the counter to min values */
       min_counter_cp[test[i]]++;
@@ -571,7 +515,7 @@ static void format_match(MEMORY_BLOCK *memory_block,
       exact_char_counter[test[i]] = min_counter_cp[test[i]];
 
       /* sign position to avoid for this char */
-      f_add_index_to_char_list(memory_block, avoid_char_pos, test[i], i);
+      avoid_char_pos[test[i]][i] = 1;
 
       /* sign the chars to avoid if not present */
       if (char_map_target_cp[test[i]] == 0)
@@ -586,7 +530,7 @@ static void format_match(MEMORY_BLOCK *memory_block,
       char_map_test[test[i]]--;
       
       /* sign position to avoid for this char */
-      f_add_index_to_char_list(memory_block, avoid_char_pos, test[i], i);
+      avoid_char_pos[test[i]][i] = 1;
 
       /* increment the counter */
       min_counter_cp[test[i]]++;
@@ -611,8 +555,8 @@ static _ui solve(TRIE *trie,
                  _ui *min_counter, 
                  _ui *exact_char_counter, 
                  bool *min_counter_finalized,
-                 CHAR_COUNTER *exact_char_pos,
-                 CHAR_COUNTER *avoid_char_pos,
+                 _ui **exact_char_pos,
+                 _ui **avoid_char_pos,
                  _ui *test_char_map,
                  _ui *wrong_counter,
                  const _ui max_wrong,
@@ -760,10 +704,6 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *exact_char_counter = (_ui*)mem_alloc;
 
-  /* positions with a certain not match */
-  mem_alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER)*256);
-  CHAR_COUNTER *avoid_char_pos = (CHAR_COUNTER*)mem_alloc;
-
   /* general buffer */
   mem_alloc = memory_block->get_block(memory_block, sizeof(_uc)*256);
   _uc *str_buffer = mem_alloc;
@@ -771,10 +711,6 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
   /* general buffer for recursive trie computation */
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *test_char_map = (_ui*)mem_alloc;
-
-  /* exact chars list */
-  mem_alloc = memory_block->get_block(memory_block, sizeof(CHAR_COUNTER)*256);
-  CHAR_COUNTER *exact_char_pos = (CHAR_COUNTER*)mem_alloc;
 
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *char_map_target = (_ui*)mem_alloc;
@@ -785,6 +721,11 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
   mem_alloc = memory_block->get_block(memory_block, sizeof(_ui)*256);
   _ui *min_counter_cp = (_ui*)mem_alloc;
   
+  /* exact chars list */
+  _ui *exact_char_pos[256] = {0};
+  /* positions with a certain not match */
+  _ui *avoid_char_pos[256] = {0};
+  
   /* get the length of the strings */
   if (fgets((char*)tester, 11, stdin))
     str_len = atoi((const char*)tester);
@@ -793,6 +734,12 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
   str_len = (_ui)(str_len > 20 ? str_len : 20);
   buffer = memory_block->get_block(memory_block, str_len);
   bool start_game = get_vocabulary(trie, memory_block, buffer, str_len);
+
+  for (_ui i = 0; i < 256; i++)
+  {
+    avoid_char_pos[i] = (_ui*)memory_block->get_block(memory_block, sizeof(_ui)*str_len);
+    exact_char_pos[i] = (_ui*)memory_block->get_block(memory_block, sizeof(_ui)*str_len);
+  }
 
   /* the printf buffer */
   mem_alloc = memory_block->get_block(memory_block, str_len);
@@ -823,9 +770,12 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
         memset((void*)min_counter, 0, sizeof(_ui)*256);
         memset((void*)exact_char_counter, 0, sizeof(_ui)*256);
         memset((void*)min_counter_finalized, 0, sizeof(bool)*256);
-        memset((void*)exact_char_pos, 0, sizeof(CHAR_COUNTER)*256);
-        memset((void*)avoid_char_pos, 0, sizeof(CHAR_COUNTER)*256);
         memset((void*)test_char_map, 0, sizeof(_ui)*256);
+        for (_ui i = 0; i < 256; i++)
+        {
+          memset((void*)exact_char_pos[i], 0, sizeof(_ui)*str_len);
+          memset((void*)avoid_char_pos[i], 0, sizeof(_ui)*str_len);
+        }
 
         /* clean old flags */
         trie->clean_status(trie);
@@ -855,7 +805,7 @@ void test(TRIE *trie, MEMORY_BLOCK *memory_block)
                     min_counter,
                     exact_char_counter,
                     min_counter_finalized, 
-                    exact_char_pos, 
+                    exact_char_pos,
                     avoid_char_pos,
                     test_char_map, 0); 
       }
@@ -986,8 +936,6 @@ int main(int argc, char *argv[])
 #if LOCAL_TEST == 1
   fclose(fp);
 #endif
-
-  LOG_L("size trie node:", sizeof(TRIE*));
 
   /* deallocate all sources */
   memory_block.deinit(&memory_block);

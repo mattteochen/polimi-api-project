@@ -9,4 +9,5 @@ RUN apt update && \
 RUN mkdir /workspace
 WORKDIR workspace/
 ADD . .
+RUN gcc main.c
 
