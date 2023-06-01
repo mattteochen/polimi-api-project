@@ -42,7 +42,7 @@ typedef struct FuelListNode {
 
 typedef struct BstStationsListNode {
   int station_id;
-  int max_fuel;
+  FuelListNode* fuels;
   struct BstStationsListNode* left;
   struct BstStationsListNode* right;
 } BstStationsListNode;
@@ -54,21 +54,141 @@ typedef struct {
   uint32_t buff_idx;
 }Pair;
 
+// typedef struct {
+//   uint32_t fuel_level;
+//   uint32_t count;
+// } PriorityQueueNode;
+
+// typedef struct {
+//   PriorityQueueNode* heap;
+//   int capacity;
+//   int size;
+// } PriorityQueue;
+
 uint32_t g_stations_size = 0;
 BstStationsListNode* g_stations_bst = 0;
 StationArray g_stations_array = {0, 0};
 
-//------------------------BINARY SEARCH TREE - FUEL LIST------------------------
+//------------------------PRIORITY QUEUE - FUEL LIST------------------------
 
 //This structure is used to store the all the fuels in a sorted manner for a given station
 
+// void resize_priority_queue(PriorityQueue* pq, int capacity) {
+//   if (pq->size > capacity) {
+//     printf("Can not fill old heap into new one");
+//     return;
+//   }
+//   PriorityQueueNode* new_heap = realloc(pq->heap, sizeof(PriorityQueueNode) * capacity);
+//   if (!new_heap) {
+//     printf("Realloc failed");
+//     exit(1);
+//   }
+//   pq->heap = new_heap;
+//   pq->capacity = capacity;
+// }
+
+// PriorityQueue* create_priority_queue(int capacity) {
+//   PriorityQueue* pq = (PriorityQueue*)malloc(sizeof(PriorityQueue));
+//   pq->heap = (PriorityQueueNode*)malloc((capacity) * sizeof(PriorityQueueNode));
+//   pq->capacity = capacity;
+//   pq->size = 0;
+//   return pq;
+// }
+
+// void swap(PriorityQueueNode* a, PriorityQueueNode* b) {
+//   PriorityQueueNode temp = *a;
+//   *a = *b;
+//   *b = temp;
+// }
+
+// void heapify(PriorityQueue* pq, int index) {
+//   PriorityQueueNode* array = pq->heap; 
+//   int size = pq->size;
+//   if (size > 1) {
+//     // Find the largest among root, left child and right child
+//     int largest = index;
+//     int l = 2 * index + 1;
+//     int r = 2 * index + 2;
+//     if (l < size && array[l].fuel_level > array[largest].fuel_level)
+//       largest = l;
+//     if (r < size && array[r].fuel_level > array[largest].fuel_level)
+//       largest = r;
+
+//     // Swap and continue heapifying if root is not largest
+//     if (largest != index) {
+//       swap(&array[index], &array[largest]);
+//       heapify(pq, largest);
+//     }
+//   }
+// }
+
+// void enqueue_priority_queue(PriorityQueue* pq, int fuel_level, int count) {
+//   PriorityQueueNode* array = pq->heap;
+//   if (pq->size == 0) {
+//     array[0].fuel_level = fuel_level;
+//     array[0].count = count;
+//     pq->size++;
+//   } else {
+//     array[pq->size].fuel_level = fuel_level;
+//     array[pq->size].count = count;
+//     pq->size++;
+//     for (int i=(pq->size / 2 - 1); i >= 0; i--) {
+//       heapify(pq, i);
+//     }
+//   }
+// }
+
+// //currently, a not present node dequeue is not supported
+// void dequeue_priority_queue(PriorityQueue* pq, int fuel_level) {
+//   PriorityQueueNode* array = pq->heap;
+//   uint32_t i;
+//   for (i = 0; i < pq->size; i++) {
+//     if (fuel_level == array[i].fuel_level)
+//       break;
+//   }
+
+//   swap(&array[i], &array[pq->size - 1]);
+//   pq->size--;
+//   for (int i=(pq->size / 2 - 1); i >= 0; i--) {
+//     heapify(pq, i);
+//   }
+// }
+
+// PriorityQueueNode* front_priority_queue(PriorityQueue* pq) {
+//   if (pq->size == 0) {
+//     printf("PriorityQueue is empty. No front_priority_queue element.\n");
+//     return 0;
+//   }
+
+//   return &(pq->heap[0]);
+// }
+
+// int is_priority_queue_empty(PriorityQueue* pq) {
+//   return pq->size == 0;
+// }
+
+// void print_priority_queue(PriorityQueue* pq) {
+//   for (int i = 0; i < pq->size; ++i)
+//     printf("f: %d - c: %d\n", pq->heap[i].fuel_level, pq->heap[i].count);
+//   printf("\n\n");
+// }
+
+// void fee_priority_queue(PriorityQueue* pq) {
+//   free(pq->heap);
+//   free(pq);
+// }
+
+// //------------------------BINARY SEARCH TREE - FUEL LIST------------------------
+
+// //This structure is used to store the all the fuels in a sorted manner for a given station
+
 FuelListNode* fuel_list_create_node(uint32_t fuel_level, uint32_t count) {
-  FuelListNode* newNode = (FuelListNode*)malloc(sizeof(FuelListNode));
-  newNode->fuel_level = fuel_level;
-  newNode->count = count;
-  newNode->left = NULL;
-  newNode->right = NULL;
-  return newNode;
+  FuelListNode* node = (FuelListNode*)malloc(sizeof(FuelListNode));
+  node->fuel_level = fuel_level;
+  node->count = count;
+  node->left = NULL;
+  node->right = NULL;
+  return node;
 }
 
 FuelListNode* fuel_list_insert_node(FuelListNode* root, uint32_t fuel_level, uint32_t count) {
@@ -86,8 +206,21 @@ FuelListNode* fuel_list_insert_node(FuelListNode* root, uint32_t fuel_level, uin
 }
 
 FuelListNode* fuel_list_find_min_node(FuelListNode* node) {
+  if (!node) {
+    return 0;
+  }
   while (node->left != NULL) {
     node = node->left;
+  }
+  return node;
+}
+
+FuelListNode* fuel_list_find_max_node(FuelListNode* node) {
+  if (!node) {
+    return 0;
+  }
+  while (node->right != NULL) {
+    node = node->right;
   }
   return node;
 }
@@ -174,25 +307,25 @@ void fuel_list_free(FuelListNode* root) {
 
 //This station_id structure is used to store the g_stations_bst with the max available car autonomy in a sorted manner
 
-BstStationsListNode* stations_list_create_node(int station_id, int max_fuel) {
-  BstStationsListNode* newNode = (BstStationsListNode*)malloc(sizeof(BstStationsListNode));
-  newNode->station_id = station_id;
-  newNode->max_fuel = max_fuel;
-  newNode->left = NULL;
-  newNode->right = NULL;
-  return newNode;
+BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel, uint32_t count) {
+  BstStationsListNode* node = (BstStationsListNode*)malloc(sizeof(BstStationsListNode));
+  node->station_id = station_id;
+  node->fuels = fuel_list_insert_node(node->fuels, max_fuel, count);
+  node->left = NULL;
+  node->right = NULL;
+  return node;
 }
 
-BstStationsListNode* stations_list_insert_node(BstStationsListNode* root, int station_id, int max_fuel) {
+BstStationsListNode* stations_list_insert_node(BstStationsListNode* root, uint32_t station_id, uint32_t max_fuel, uint32_t count) {
   if (root == NULL) {
     g_stations_size++;
-    return stations_list_create_node(station_id, max_fuel);
+    return stations_list_create_node(station_id, max_fuel, count);
   }
 
   if (station_id < root->station_id) {
-    root->left = stations_list_insert_node(root->left, station_id, max_fuel);
+    root->left = stations_list_insert_node(root->left, station_id, max_fuel, count);
   } else {
-    root->right = stations_list_insert_node(root->right, station_id, max_fuel);
+    root->right = stations_list_insert_node(root->right, station_id, max_fuel, count);
   }
 
   return root;
@@ -258,7 +391,8 @@ void print_stations_list_bst(BstStationsListNode* root) {
   }
 
   print_stations_list_bst(root->left);
-  printf("s: %d - f: %d\n", root->station_id, root->max_fuel);
+  printf("station %d\n", root->station_id);
+  print_fuel_list(root->fuels);
   print_stations_list_bst(root->right);
 }
 
@@ -279,7 +413,8 @@ void stations_list_bst_to_array_recursive(BstStationsListNode* root) {
 
   stations_list_bst_to_array_recursive(root->left);
   g_stations_array.arr[g_stations_array.size++] = root->station_id;
-  g_stations_array.arr[g_stations_array.size++] = root->max_fuel; 
+  FuelListNode* max = fuel_list_find_max_node(root->fuels);
+  g_stations_array.arr[g_stations_array.size++] = max ? max->fuel_level : 0; 
   stations_list_bst_to_array_recursive(root->right);
 }
 
@@ -361,14 +496,12 @@ static inline uint32_t get_stations_between(uint32_t lhs, uint32_t rhs) {
 
 DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   DpArrayRes ret = {0, 0, 0, 0};
+  //use bst to seach as log(n)
   BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, start_station);
   BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, end_station);
   if (!start_station_node || !end_station_node) {
     return ret; 
   }
-
-  int start_station_fuel = start_station_node->max_fuel;
-  int start_fuel = start_station_node->station_id;
 
   uint32_t arr_size = get_stations_between(start_station, end_station) + 2; //add the extremes
   //filter out only the needed stations max fuels
@@ -473,23 +606,22 @@ void backtrack_best_route(DpArrayRes in) {
 }
 
 int main() {
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 10, 20);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 20, 30);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 30, 10);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 40, 20);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 50, 10);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 0);
-
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 10, 20, 1);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 20, 30, 5);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 30, 10, 1);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 40, 20, 1);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 50, 10, 1);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 0, 100);
   // print_stations_list_bst(g_stations_bst);
 
   stations_list_bst_to_array();
   // print_station_array(&g_stations_array);
 
   DpArrayRes dp_res = compute_min_path_dp(10, 60);
-  for (uint32_t i=0; i<dp_res.size; ++i) {
-    printf("%d ", dp_res.filtered.stations[i]);
-  }
-  printf("\n\n");
+  // for (uint32_t i=0; i<dp_res.size; ++i) {
+  //   printf("%d ", dp_res.filtered.stations[i]);
+  // }
+  // printf("\n\n");
   backtrack_best_route(dp_res);
   free(dp_res.dp);
   free(dp_res.filtered.fuels);
@@ -501,24 +633,3 @@ int main() {
   return 0;
 }
 
-//example of bst usage
-// int main() {
-//     BstStationsListNode* root = NULL;
-
-//     // Inserting elements into the BST
-//     root = stations_list_insert_node(root, 5, 10);
-//     root = stations_list_insert_node(root, 3, 10);
-//     root = stations_list_insert_node(root, 7, 10);
-//     root = stations_list_insert_node(root, 1, 10);
-//     root = stations_list_insert_node(root, 4, 10);
-
-//     // Inorder traversal of the BST (sorted list)
-//     printf("Sorted list (inorder traversal): ");
-//     print_stations_list_bst(root);
-//     printf("\n");
-
-//     // Freeing the memory allocated for the BST
-//     stations_list_free(root);
-
-//     return 0;
-// }
