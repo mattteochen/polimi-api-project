@@ -5,7 +5,10 @@
 #include <stdbool.h>
 #include <limits.h>
 
-#define PATH_NOT_FOUND -1;
+#define DEBUG_DP 0
+#define DEBUG_FILTER 0
+
+#define PATH_NOT_FOUND -1
 
 const char AGGIUNTA[] = "aggiunta";
 const char NON_AGGIUNTA[] = "non aggiunta";
@@ -14,6 +17,12 @@ const char NON_DEMOLITA[] = "non demolita";
 const char ROTTAMATA[] = "rottamata";
 const char NON_ROTTAMATA[] = "non rottamata";
 const char NP[] = "nessun percorso";
+
+const char ADD_STATION[] = "aggiungi-stazione";
+const char REMOVE_STATION[] = "demolisci-stazione";
+const char ADD_CAR[] = "aggiungi-auto";
+const char BREAK_CAR[] = "rottama-auto";
+const char GET_PATH[] = "pianifica-percorso";
 
 static inline uint32_t get_station_index_in_array_from_id(uint32_t id);
 
@@ -183,11 +192,9 @@ StationArray g_stations_array = {0, 0};
 // //This structure is used to store the all the fuels in a sorted manner for a given station
 
 FuelListNode* fuel_list_create_node(uint32_t fuel_level, uint32_t count) {
-  FuelListNode* node = (FuelListNode*)malloc(sizeof(FuelListNode));
+  FuelListNode* node = calloc(1, sizeof(FuelListNode));
   node->fuel_level = fuel_level;
   node->count = count;
-  node->left = NULL;
-  node->right = NULL;
   return node;
 }
 
@@ -308,11 +315,9 @@ void fuel_list_free(FuelListNode* root) {
 //This station_id structure is used to store the g_stations_bst with the max available car autonomy in a sorted manner
 
 BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel, uint32_t count) {
-  BstStationsListNode* node = (BstStationsListNode*)malloc(sizeof(BstStationsListNode));
+  BstStationsListNode* node = calloc(1, sizeof(BstStationsListNode));
   node->station_id = station_id;
   node->fuels = fuel_list_insert_node(node->fuels, max_fuel, count);
-  node->left = NULL;
-  node->right = NULL;
   return node;
 }
 
@@ -403,6 +408,7 @@ void stations_list_free(BstStationsListNode* root) {
 
   stations_list_free(root->left);
   stations_list_free(root->right);
+  fuel_list_free(root->fuels);
   free(root);
 }
 
@@ -439,8 +445,8 @@ void print_station_array(StationArray* s) {
   }
 }
 
-// Retrieve an array with the stations max available gas fuel associated to stations id [lhs, rhs]
-FilteredStationFuel get_stations_id_and_fuels_array(uint32_t lhs, uint32_t rhs, uint32_t size) {
+// Retrieve an array with the stations max available gas fuel associated to stations id [lhs, rhs] or [rhs, lhs]
+FilteredStationFuel get_stations_id_and_fuels_array(uint32_t lhs, uint32_t rhs, uint32_t size, int8_t incrementer) {
   
   uint32_t* fuel = malloc(sizeof(uint32_t) * size);
   uint32_t* station = malloc(sizeof(uint32_t) * size);
@@ -450,12 +456,13 @@ FilteredStationFuel get_stations_id_and_fuels_array(uint32_t lhs, uint32_t rhs, 
     exit(1);
   }
 
-  uint32_t dest_idx = 0;
-  uint32_t start = get_station_index_in_array_from_id(lhs);
-  uint32_t end = get_station_index_in_array_from_id(rhs);
+  int32_t dest_idx = incrementer > 0 ? 0 : size-1;
+  uint32_t start = get_station_index_in_array_from_id(lhs < rhs ? lhs : rhs);
+  uint32_t end = get_station_index_in_array_from_id(lhs > rhs ? lhs : rhs);
   for (uint32_t i=start; i<g_stations_array.size && i <= end; i+=2) {
     fuel[dest_idx] = g_stations_array.arr[i+1]; //save the max fuel
-    station[dest_idx++] = g_stations_array.arr[i]; //save the station id
+    station[dest_idx] = g_stations_array.arr[i]; //save the station id
+    dest_idx += incrementer;
   }
 
   FilteredStationFuel ans = {
@@ -465,7 +472,7 @@ FilteredStationFuel get_stations_id_and_fuels_array(uint32_t lhs, uint32_t rhs, 
 }
 
 //the fuel index is to be intended coming from the array containing only the fuels, used in the dp computation
-static inline uint32_t get_station_id_from_fuel_index(uint32_t idx) {
+static inline int32_t get_station_id_from_fuel_index(uint32_t idx) {
   if (idx*2 >= g_stations_array.size) {
     // printf("index %d overflow in <get_station_id_from_fuel_index>\n", idx*2);
     return INT_MAX;
@@ -475,7 +482,9 @@ static inline uint32_t get_station_id_from_fuel_index(uint32_t idx) {
 }
 
 static inline uint32_t get_stations_id_distance_diff_from_fuel_index(uint32_t a, uint32_t b) {
-  return get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a);
+  uint32_t ans = abs(get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a));
+  // printf("diff: %d\n", ans);
+  return ans;
 }
 
 static inline uint32_t get_station_index_in_array_from_id(uint32_t id) {
@@ -491,10 +500,14 @@ static inline uint32_t get_station_index_in_array_from_id(uint32_t id) {
 
 //retrieve how many stations are there between two stations id, extremes excluded
 static inline uint32_t get_stations_between(uint32_t lhs, uint32_t rhs) {
-  return ((get_station_index_in_array_from_id(rhs) - get_station_index_in_array_from_id(lhs)) / 2) - 1;
+  if (lhs < rhs) {
+    return ((get_station_index_in_array_from_id(rhs) - get_station_index_in_array_from_id(lhs)) / 2) - 1;
+  } else {
+    return ((get_station_index_in_array_from_id(lhs) - get_station_index_in_array_from_id(rhs)) / 2) - 1;
+  }
 }
 
-DpArrayRes compute_min_path_dp(int start_station, int end_station) {
+DpArrayRes compute_min_path_dp_front(int start_station, int end_station) {
   DpArrayRes ret = {0, 0, 0, 0};
   //use bst to seach as log(n)
   BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, start_station);
@@ -505,47 +518,49 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
 
   uint32_t arr_size = get_stations_between(start_station, end_station) + 2; //add the extremes
   //filter out only the needed stations max fuels
-  FilteredStationFuel filtered = get_stations_id_and_fuels_array(start_station, end_station, arr_size);
+  FilteredStationFuel filtered =
+    get_stations_id_and_fuels_array(start_station, end_station, arr_size, start_station < end_station ? 1 : -1);
   uint32_t* dp = calloc(arr_size, sizeof(uint32_t));
 
-  // printf("arr size: %d\n", arr_size);
-  // for (int i=0; i<arr_size; i++) {
-  //   printf("%d ", arr[i]);
-  // }
-  // printf("\n");
+#if DEBUG_FILTER
+  printf("arr size: %d\n", arr_size);
+  for (int i=0; i<arr_size; i++) {
+    printf("s: %d f: %d\n", filtered.stations[i], filtered.fuels[i]);
+  }
+  printf("\n");
+#endif
 
   for(int idx=arr_size-2; idx>=0; idx--){ //do not use uint32_t as this will go negative
-    int steps = filtered.fuels[idx];
+    uint32_t steps = filtered.fuels[idx];
 
     int min = INT_MAX;
-    int min_idx = -1;
     if(steps > 0){
       for(int i=1; i<=steps; i++){
-        if (get_station_id_from_fuel_index(idx) + steps < get_station_id_from_fuel_index(idx+i)) {
+        uint32_t idx_station_id = get_station_id_from_fuel_index(idx);
+        uint32_t idx_pi_station_id = get_station_id_from_fuel_index(idx+i);
+        if (start_station < end_station && idx_station_id + steps < idx_pi_station_id) {
+          break;
+        }
+        if (start_station > end_station && steps < idx_station_id && idx_station_id - steps > idx_pi_station_id) {
           break;
         }
         if(idx+i < arr_size) {
-          if (dp[idx+i] <= min) {
-              min = dp[idx+i];
-              min_idx = idx+i;
+          //update min if it is min and the step is reacheble as signle steps have not weight = 1
+          if (dp[idx+i] <= min && steps >= get_stations_id_distance_diff_from_fuel_index(idx, idx+i)) {
+            min = dp[idx+i];
           }
         }
       }
     }
-    bool can_reach_end = filtered.fuels[idx] >= get_stations_id_distance_diff_from_fuel_index(idx, min_idx);
-    if (can_reach_end) {
-      dp[idx] = min == INT_MAX ? min : min+1;
-    }
-    else {
-      dp[idx] = 0;
-    }
+    dp[idx] = min == INT_MAX ? min : min+1;
   }
 
-  // printf("dp size: %d\n", arr_size);
-  // for (int i=0; i<arr_size; i++) {
-  //   printf("%d ", dp[i]);
-  // }
-  // printf("\n");
+#if (DEBUG_DP)
+  for (uint32_t i=0; i<arr_size; ++i) {
+    printf("%d ", dp[i]);
+  }
+  printf("\n\n");
+#endif
   ret.dp = dp;
   ret.filtered = filtered;
   ret.size = arr_size;
@@ -573,6 +588,7 @@ void backtrack_best_route(DpArrayRes in) {
     Pair p = queue[queue_front++]; //increment front pointer
 
     if (p.jumps == 0) {
+      //TODO: use a single stdout
       printf("%d ", stations[0]);
       for (uint32_t i=0; i<p.buff_idx; i++) {
         printf("%d ", stations[p.buff[i]]);
@@ -605,24 +621,31 @@ void backtrack_best_route(DpArrayRes in) {
   free(queue);
 }
 
+void parse_cmd() {
+  char buf[1024];
+  while(fgets(buf, 99, stdin)) {
+    printf("%s\n", buf);
+  }
+}
+
 int main() {
   g_stations_bst = stations_list_insert_node(g_stations_bst, 10, 20, 1);
   g_stations_bst = stations_list_insert_node(g_stations_bst, 20, 30, 5);
   g_stations_bst = stations_list_insert_node(g_stations_bst, 30, 10, 1);
   g_stations_bst = stations_list_insert_node(g_stations_bst, 40, 20, 1);
   g_stations_bst = stations_list_insert_node(g_stations_bst, 50, 10, 1);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 0, 100);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 10, 100);
+  g_stations_bst = stations_list_insert_node(g_stations_bst, 100, 100, 100);
   // print_stations_list_bst(g_stations_bst);
 
   stations_list_bst_to_array();
   // print_station_array(&g_stations_array);
 
-  DpArrayRes dp_res = compute_min_path_dp(10, 60);
-  // for (uint32_t i=0; i<dp_res.size; ++i) {
-  //   printf("%d ", dp_res.filtered.stations[i]);
-  // }
-  // printf("\n\n");
-  backtrack_best_route(dp_res);
+  DpArrayRes dp_res = compute_min_path_dp_front(10, 60);
+
+  if (dp_res.dp[0] != INT_MAX) {
+    backtrack_best_route(dp_res);
+  }
   free(dp_res.dp);
   free(dp_res.filtered.fuels);
   free(dp_res.filtered.stations);
