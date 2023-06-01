@@ -4,11 +4,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <errno.h>
+#include <ctype.h>
 
 #define DEBUG_DP 0
 #define DEBUG_FILTER 0
-
-#define PATH_NOT_FOUND -1
+#define DEBUG_INPUT 0
 
 const char AGGIUNTA[] = "aggiunta";
 const char NON_AGGIUNTA[] = "non aggiunta";
@@ -26,14 +27,21 @@ const char GET_PATH[] = "pianifica-percorso";
 
 static inline uint32_t get_station_index_in_array_from_id(uint32_t id);
 
+typedef enum {
+  STR2INT_SUCCESS,
+  STR2INT_OVERFLOW,
+  STR2INT_UNDERFLOW,
+  STR2INT_INCONVERTIBLE
+} Str2IntErrNo;
+
 typedef struct {
   uint32_t* fuels;
   uint32_t* stations;
 } FilteredStationFuel;
 
 typedef struct {
-  int size;
-  int* arr; //flatten 2d array ([station,fuel]) into 1d array
+  uint32_t size;
+  uint32_t* arr; //flatten 2d array ([station,fuel]) into 1d array
 } StationArray;
 
 typedef struct {
@@ -61,7 +69,7 @@ typedef struct {
   int32_t jumps;
   uint32_t* buff;
   uint32_t buff_idx;
-}Pair;
+} Pair;
 
 // typedef struct {
 //   uint32_t fuel_level;
@@ -76,7 +84,26 @@ typedef struct {
 
 uint32_t g_stations_size = 0;
 BstStationsListNode* g_stations_bst = 0;
+BstStationsListNode* g_last_created_station_node = 0;
+uint8_t g_map_changed = 0;
 StationArray g_stations_array = {0, 0};
+
+Str2IntErrNo str2int(int *out, char *s, int base) {
+  char *end;
+  if (s[0] == '\0' || isspace(s[0]))
+    return STR2INT_INCONVERTIBLE;
+  errno = 0;
+  long l = strtol(s, &end, base);
+  /* Both checks are needed because INT_MAX == LONG_MAX is possible. */
+  if (l > INT_MAX || (errno == ERANGE && l == LONG_MAX))
+    return STR2INT_OVERFLOW;
+  if (l < INT_MIN || (errno == ERANGE && l == LONG_MIN))
+    return STR2INT_UNDERFLOW;
+  if (*end != '\0')
+    return STR2INT_INCONVERTIBLE;
+  *out = l;
+  return STR2INT_SUCCESS;
+}
 
 //------------------------PRIORITY QUEUE - FUEL LIST------------------------
 
@@ -278,16 +305,17 @@ FuelListNode* fuel_list_search(FuelListNode* root, uint32_t fuel_level) {
   }
 }
 
-void fuel_list_update_count(FuelListNode* root, uint32_t fuel_level, int32_t delta) {
+uint8_t fuel_list_update_count(FuelListNode* root, uint32_t fuel_level, int32_t delta) {
   FuelListNode* target = fuel_list_search(root, fuel_level);
   if (!target) {
-    return;
+    return 0;
   }
 
   if (delta < 0 && -delta > target->count) {
     target->count = 0;
   }
   target->count += delta;
+  return 1;
 }
 
 void print_fuel_list(FuelListNode* root) {
@@ -318,6 +346,7 @@ BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel
   BstStationsListNode* node = calloc(1, sizeof(BstStationsListNode));
   node->station_id = station_id;
   node->fuels = fuel_list_insert_node(node->fuels, max_fuel, count);
+  g_last_created_station_node = node;
   return node;
 }
 
@@ -357,6 +386,7 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
 
     // Case 1: No child or one child
     if (!root->left && !root->right) {
+      fuel_list_free(root->fuels); 
       free(root);
       return NULL;
     }
@@ -365,6 +395,7 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
     if (root->left == NULL || root->right == NULL) {
       BstStationsListNode* temp = root->right;
       temp = !root->left ? root->right : root->left;
+      fuel_list_free(root->fuels); 
       free(root);
       return temp;
     }
@@ -431,7 +462,8 @@ void stations_list_bst_to_array() {
     g_stations_array.size = 0;
   }
 
-  g_stations_array.arr = (int*)malloc(sizeof(int) * (g_stations_size << 2));
+  //TODO: can maintain the buffer if new size is equal or lower
+  g_stations_array.arr = (uint32_t*)malloc(sizeof(uint32_t) * (g_stations_size << 2));
   stations_list_bst_to_array_recursive(g_stations_bst);
 }
 
@@ -482,9 +514,8 @@ static inline int32_t get_station_id_from_fuel_index(uint32_t idx) {
 }
 
 static inline uint32_t get_stations_id_distance_diff_from_fuel_index(uint32_t a, uint32_t b) {
-  uint32_t ans = abs(get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a));
   // printf("diff: %d\n", ans);
-  return ans;
+  return abs(get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a));
 }
 
 static inline uint32_t get_station_index_in_array_from_id(uint32_t id) {
@@ -507,14 +538,9 @@ static inline uint32_t get_stations_between(uint32_t lhs, uint32_t rhs) {
   }
 }
 
-DpArrayRes compute_min_path_dp_front(int start_station, int end_station) {
+//the caller must check that start and end stations do exist in the current map
+DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   DpArrayRes ret = {0, 0, 0, 0};
-  //use bst to seach as log(n)
-  BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, start_station);
-  BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, end_station);
-  if (!start_station_node || !end_station_node) {
-    return ret; 
-  }
 
   uint32_t arr_size = get_stations_between(start_station, end_station) + 2; //add the extremes
   //filter out only the needed stations max fuels
@@ -545,7 +571,7 @@ DpArrayRes compute_min_path_dp_front(int start_station, int end_station) {
           break;
         }
         if(idx+i < arr_size) {
-          //update min if it is min and the step is reacheble as signle steps have not weight = 1
+          //update min if it is min and the step is reacheble as single steps have not weight = 1 but weight = get_stations_id_distance_diff_from_fuel_index
           if (dp[idx+i] <= min && steps >= get_stations_id_distance_diff_from_fuel_index(idx, idx+i)) {
             min = dp[idx+i];
           }
@@ -621,38 +647,317 @@ void backtrack_best_route(DpArrayRes in) {
   free(queue);
 }
 
-void parse_cmd() {
-  char buf[1024];
-  while(fgets(buf, 99, stdin)) {
-    printf("%s\n", buf);
+static inline void add_station(const uint8_t* input_buf) {
+  uint32_t idx = 18;
+  int32_t cars = 0;
+  int32_t station_id = 0;
+  char storage[12] = {0};
+  uint8_t storage_idx = 0;
+
+  //get station id
+  while (input_buf[idx] != ' ') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+  
+  str2int(&station_id, storage, 10);
+#if DEBUG_INPUT
+  printf("station: %d\n", station_id);
+#endif
+
+  if (stations_list_search(g_stations_bst, station_id)) {
+    printf("%s\n", NON_AGGIUNTA);
+    return;
+  }
+
+  //get car nums
+  storage_idx = 0;
+  while (input_buf[idx] != ' ') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+
+  str2int(&cars, storage, 10);
+#if DEBUG_INPUT
+  printf("cars: %d\n", cars);
+#endif
+
+  if (cars == 0) {
+    g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, 0, 1);
+    printf("%s\n", AGGIUNTA);
+    //signal the map has changed
+    g_map_changed = 1;
+    return;
+  }
+ 
+  for (uint32_t i=0; i<cars && input_buf[idx] != '\n' && input_buf[idx] != '\0'; i++) {
+    //get fuel
+    storage_idx = 0;
+    while (input_buf[idx] != ' ' && input_buf[idx] != '\n' && input_buf[idx] != '\0') {
+      storage[storage_idx++] = input_buf[idx++];
+    }
+    idx++;
+    storage[storage_idx] = '\0';
+
+    int32_t fuel = 0;
+    str2int(&fuel, storage, 10);
+#if DEBUG_INPUT
+    printf("fuel: %d\n", fuel);
+#endif
+
+    //first fuel ? if yes add station and fuel
+    if (i == 0) {
+      g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, fuel, 1);
+    //else update the node fuel values
+    } else {
+      g_last_created_station_node->fuels = fuel_list_insert_node(g_last_created_station_node->fuels, fuel, 1);
+    }
+  }
+  printf("%s\n", AGGIUNTA);
+
+  //signal the map has changed
+  g_map_changed = 1;
+}
+
+static inline void remove_station(const uint8_t* input_buf) {
+  uint32_t idx = 19;
+  int32_t station_id = 0;
+  char storage[12] = {0};
+  uint8_t storage_idx = 0;
+
+  //get station id
+  while (input_buf[idx] != '\n' && input_buf[idx] != '\0') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+  
+  str2int(&station_id, storage, 10);
+#if DEBUG_INPUT
+  printf("station: %d\n", station_id);
+#endif
+
+  //optimistic removal log(n)
+  uint32_t before_delete = g_stations_size;
+  g_stations_bst = stations_list_remove_node(g_stations_bst, station_id);
+  if (g_stations_size == before_delete) {
+    printf("%s\n", NON_DEMOLITA);
+  } else {
+    printf("%s\n", DEMOLITA);
+    //signal map has changed
+    g_map_changed = 1;
   }
 }
 
-int main() {
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 10, 20, 1);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 20, 30, 5);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 30, 10, 1);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 40, 20, 1);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 50, 10, 1);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 10, 100);
-  g_stations_bst = stations_list_insert_node(g_stations_bst, 100, 100, 100);
-  // print_stations_list_bst(g_stations_bst);
+static inline void add_car(const uint8_t* input_buf) {
+  uint32_t idx = 14;
+  int32_t fuel = 0;
+  int32_t station_id = 0;
+  char storage[12] = {0};
+  uint8_t storage_idx = 0;
 
-  stations_list_bst_to_array();
-  // print_station_array(&g_stations_array);
+  //get station id
+  while (input_buf[idx] != ' ') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+  
+  str2int(&station_id, storage, 10);
+#if DEBUG_INPUT
+  printf("station: %d\n", station_id);
+#endif
 
-  DpArrayRes dp_res = compute_min_path_dp_front(10, 60);
+  BstStationsListNode* station_node = stations_list_search(g_stations_bst, station_id);
+  if (!station_node) {
+    printf("%s\n", NON_AGGIUNTA);
+    return;
+  }
 
+  //get fuel
+  storage_idx = 0;
+  while (input_buf[idx] != '\n' && input_buf[idx] != '\0') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+
+  str2int(&fuel, storage, 10);
+#if DEBUG_INPUT
+  printf("fuel: %d\n", fuel);
+#endif
+
+  station_node->fuels = fuel_list_insert_node(station_node->fuels, fuel, 1);
+  printf("%s\n", AGGIUNTA);
+
+  //signal map has changed
+  g_map_changed = 1;
+}
+
+static inline void remove_car(const uint8_t* input_buf) {
+  uint32_t idx = 13;
+  int32_t fuel = 0;
+  int32_t station_id = 0;
+  char storage[12] = {0};
+  uint8_t storage_idx = 0;
+
+  //get station id
+  while (input_buf[idx] != ' ') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+  
+  str2int(&station_id, storage, 10);
+#if DEBUG_INPUT
+  printf("station: %d\n", station_id);
+#endif
+
+  BstStationsListNode* station_node = stations_list_search(g_stations_bst, station_id);
+  if (!station_node) {
+    printf("%s\n", NON_ROTTAMATA);
+    return;
+  }
+
+  //get fuel
+  storage_idx = 0;
+  while (input_buf[idx] != '\n' && input_buf[idx] != '\0') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+
+  str2int(&fuel, storage, 10);
+#if DEBUG_INPUT
+  printf("fuel: %d\n", fuel);
+#endif
+
+  if (fuel_list_update_count(station_node->fuels, fuel, -1)) {
+    printf("%s\n", ROTTAMATA);
+    //signal the map has changed
+    g_map_changed = 1;
+  } else {
+    printf("%s\n", NON_ROTTAMATA);
+  }
+}
+
+static inline void compute_path(const uint8_t* input_buf) {
+  uint32_t idx = 19;
+  int32_t from = 0;
+  int32_t to = 0;
+  char storage[12] = {0};
+  uint8_t storage_idx = 0;
+
+  //get station id
+  while (input_buf[idx] != ' ') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+  
+  str2int(&from, storage, 10);
+#if DEBUG_INPUT
+  printf("from: %d\n", from);
+#endif
+
+  //get fuel
+  storage_idx = 0;
+  while (input_buf[idx] != '\n' && input_buf[idx] != '\0') {
+    storage[storage_idx++] = input_buf[idx++];
+  }
+  idx++;
+  storage[storage_idx] = '\0';
+
+  str2int(&to, storage, 10);
+#if DEBUG_INPUT
+  printf("to: %d\n", to);
+#endif
+
+  //fist compute the path existance
+  BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, from);
+  BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, to);
+  if (!start_station_node || !end_station_node) {
+    printf("%s\n", NP);
+    return;
+  }
+
+  //if does exist compute the flatten road, if changed
+  if (g_map_changed) {
+    g_map_changed = 0;
+    stations_list_bst_to_array();
+  }
+  //compute min path with dp and rebuild the path with backtracking
+  DpArrayRes dp_res = compute_min_path_dp(from, to);
   if (dp_res.dp[0] != INT_MAX) {
     backtrack_best_route(dp_res);
+  } else {
+    printf("%s\n", NP);
   }
   free(dp_res.dp);
   free(dp_res.filtered.fuels);
   free(dp_res.filtered.stations);
+}
+
+void parse_cmd() {
+  uint8_t buf[1024];
+  while(fgets((char*)buf, 1023, stdin)) {
+    // printf("%s\n", buf);
+
+    //add station
+    if (buf[0] == 'a' && buf[9] == 's') {
+      add_station(buf); 
+    //remove station
+    } else if (buf[0] == 'd' && buf[10] == 's') {
+      remove_station(buf);
+    //add car
+    } else if (buf[0] == 'a' && buf[9] == 'a') {
+      add_car(buf);
+    //remove car
+    } else if (buf[0] == 'r' && buf[8] == 'a') {
+      remove_car(buf);
+    //get path
+    } else {
+      compute_path(buf);
+    }
+  }
+}
+
+int main() {
+  parse_cmd();
 
   stations_list_free(g_stations_bst);
   free(g_stations_array.arr);
-
   return 0;
 }
+
+// int demo() {
+
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 10, 20, 1);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 20, 30, 5);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 30, 10, 1);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 40, 20, 1);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 50, 10, 1);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 60, 10, 100);
+//   g_stations_bst = stations_list_insert_node(g_stations_bst, 100, 100, 100);
+//   print_stations_list_bst(g_stations_bst);
+
+//   stations_list_bst_to_array();
+//   // print_station_array(&g_stations_array);
+
+//   DpArrayRes dp_res = compute_min_path_dp(10, 60);
+
+//   if (dp_res.dp[0] != INT_MAX) {
+//     backtrack_best_route(dp_res);
+//   }
+//   free(dp_res.dp);
+//   free(dp_res.filtered.fuels);
+//   free(dp_res.filtered.stations);
+
+//   stations_list_free(g_stations_bst);
+//   free(g_stations_array.arr);
+
+//   return 0;
+// }
 

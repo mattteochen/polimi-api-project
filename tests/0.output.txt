@@ -1,35 +1,16 @@
--s9k0
-5sjaH
-8dafs
-KS06l
-laj74
-okauE
-si83H
-sm_ks
--s9k0
-5sjaH
-8dafs
-AAAAA
-BBBBB
-CCCCC
-KS06l
-laj74
-okauE
-si83H
-sm_ks
-ok
--s9k0
-5sjaH
-8dafs
-AAAAA
-BBBBB
-CCCCC
-DDDDD
-EEEEE
-FFFFF
-KS06l
-laj74
-okauE
-si83H
-sm_ks
-ok
+aggiunta
+aggiunta
+aggiunta
+non demolita
+demolita
+aggiunta
+aggiunta
+non rottamata
+non rottamata
+rottamata
+20 30 
+20 30 50 
+50 30 
+50 30 20 
+aggiunta
+50 20 

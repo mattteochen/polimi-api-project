@@ -1,30 +1,16 @@
-5
-8dafs
-5sjaH
-KS06l
-si83H
-laj74
--s9k0
-sm_ks
-okauE
-+nuova_partita
-5sjaH
-1
-+stampa_filtrate
-+inserisci_inizio
-AAAAA
-BBBBB
-CCCCC
-+inserisci_fine
-+stampa_filtrate
-5sjaH
-+inserisci_inizio
-DDDDD
-EEEEE
-FFFFF
-+inserisci_fine
-+nuova_partita
-EEEEE
-1
-+stampa_filtrate
-EEEEE
+aggiungi-stazione 20 3 5 10 15
+aggiungi-stazione 4 3 1 2 3
+aggiungi-stazione 30 0
+demolisci-stazione 3
+demolisci-stazione 4
+aggiungi-auto 30 40
+aggiungi-stazione 50 3 20 25 7
+rottama-auto 20 8
+rottama-auto 9999 5
+rottama-auto 50 7
+pianifica-percorso 20 30
+pianifica-percorso 20 50
+pianifica-percorso 50 30
+pianifica-percorso 50 20
+aggiungi-auto 50 30
+pianifica-percorso 50 20
