@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <limits.h>
 #include <errno.h>
 #include <ctype.h>
@@ -40,7 +39,7 @@ typedef struct {
 } FilteredStationFuel;
 
 typedef struct {
-  uint32_t size;
+  uint32_t size; //used to track how much buffer has been used, after a flatten action this must be equal to the max buf size by design
   uint32_t* arr; //flatten 2d array ([station,fuel]) into 1d array
 } StationArray;
 
@@ -450,20 +449,33 @@ void stations_list_bst_to_array_recursive(BstStationsListNode* root) {
 
   stations_list_bst_to_array_recursive(root->left);
   g_stations_array.arr[g_stations_array.size++] = root->station_id;
+  //TODO: cache the max node
   FuelListNode* max = fuel_list_find_max_node(root->fuels);
   g_stations_array.arr[g_stations_array.size++] = max ? max->fuel_level : 0; 
   stations_list_bst_to_array_recursive(root->right);
 }
 
 void stations_list_bst_to_array() {
-  if (g_stations_array.arr != NULL) {
-    free(g_stations_array.arr);
-    g_stations_array.arr = NULL;
+  if (g_stations_size < 1) {
+    return;
+  }
+  //overwrite old buffer if buffer exist
+  if (g_stations_array.arr && g_stations_size*2 <= g_stations_array.size) {
+    g_stations_array.size = 0;
+  } else if (g_stations_array.arr && g_stations_size*2 > g_stations_array.size) {
+    //realloc
+    uint32_t* new_buf = realloc(g_stations_array.arr, sizeof(uint32_t) * g_stations_size * 2);
+    if (!new_buf) {
+      printf("Realloc failed\n");
+      exit(1);
+    }
+    g_stations_array.size = 0;
+    g_stations_array.arr = new_buf;
+  //first allocation
+  } else if (!g_stations_array.arr) {
+    g_stations_array.arr = (uint32_t*)malloc(sizeof(uint32_t) * (g_stations_size * 2));
     g_stations_array.size = 0;
   }
-
-  //TODO: can maintain the buffer if new size is equal or lower
-  g_stations_array.arr = (uint32_t*)malloc(sizeof(uint32_t) * (g_stations_size << 2));
   stations_list_bst_to_array_recursive(g_stations_bst);
 }
 
@@ -603,7 +615,7 @@ void backtrack_best_route(DpArrayRes in) {
  
   uint32_t queue_front = 0;
   uint32_t queue_back = 0;
-  const uint32_t queue_size = size * 10;
+  uint32_t queue_size = size * 2;
   Pair* queue = calloc(queue_size, sizeof(Pair)); //TODO: dynamic size
   queue[queue_back].idx = 0;
   queue[queue_back].jumps = dp[0];
@@ -625,6 +637,16 @@ void backtrack_best_route(DpArrayRes in) {
 
     for (uint32_t i=1; i<=fuels[p.idx]; i++) {
       if (p.idx+i < size && p.jumps-1 == dp[p.idx+i]) {
+        //no space left
+        if (queue_back >= queue_size) {
+          Pair* new_queue = realloc(queue, queue_size * 2 * sizeof(Pair));
+          if (!new_queue) {
+            printf("Realloc failed\n");
+            exit(1);
+          }
+          queue_size *= 2;
+          queue = new_queue;
+        }
 
         queue[queue_back].idx = p.idx+i;
         queue[queue_back].jumps = p.jumps-1;
