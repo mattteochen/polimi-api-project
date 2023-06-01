@@ -10,6 +10,9 @@
 #define DEBUG_FILTER 0
 #define DEBUG_INPUT 0
 
+#define TO_BE_DELETED 1
+#define NOT_BE_DELETED 2
+
 const char AGGIUNTA[] = "aggiunta";
 const char NON_AGGIUNTA[] = "non aggiunta";
 const char DEMOLITA[] = "demolita";
@@ -86,6 +89,16 @@ BstStationsListNode* g_stations_bst = 0;
 BstStationsListNode* g_last_created_station_node = 0;
 uint8_t g_map_changed = 0;
 StationArray g_stations_array = {0, 0};
+
+int32_t compare( const void* a, const void* b)
+{
+  uint32_t int_a = * ( (uint32_t*) a );
+  uint32_t int_b = * ( (uint32_t*) b );
+
+  if ( int_a == int_b ) return 0;
+  else if ( int_a < int_b ) return -1;
+  else return 1;
+}
 
 Str2IntErrNo str2int(int *out, char *s, int base) {
   char *end;
@@ -304,17 +317,18 @@ FuelListNode* fuel_list_search(FuelListNode* root, uint32_t fuel_level) {
   }
 }
 
-uint8_t fuel_list_update_count(FuelListNode* root, uint32_t fuel_level, int32_t delta) {
+uint8_t fuel_list_update_count(FuelListNode* root, uint32_t fuel_level, int8_t delta) {
   FuelListNode* target = fuel_list_search(root, fuel_level);
   if (!target) {
     return 0;
   }
 
-  if (delta < 0 && -delta > target->count) {
-    target->count = 0;
+  if (delta == -1 && target->count == 1) {
+    return TO_BE_DELETED;
+  } else {
+    target->count += delta;  
+    return NOT_BE_DELETED;
   }
-  target->count += delta;
-  return 1;
 }
 
 void print_fuel_list(FuelListNode* root) {
@@ -552,7 +566,7 @@ static inline uint32_t get_stations_between(uint32_t lhs, uint32_t rhs) {
 
 //the caller must check that start and end stations do exist in the current map
 DpArrayRes compute_min_path_dp(int start_station, int end_station) {
-  DpArrayRes ret = {0, 0, 0, 0};
+  DpArrayRes ret = {0, 0, {0, 0}};
 
   uint32_t arr_size = get_stations_between(start_station, end_station) + 2; //add the extremes
   //filter out only the needed stations max fuels
@@ -721,7 +735,8 @@ static inline void add_station(const uint8_t* input_buf) {
     g_map_changed = 1;
     return;
   }
- 
+
+  uint32_t* fuels = malloc(sizeof(uint32_t) * cars);
   for (uint32_t i=0; i<cars && input_buf[idx] != '\n' && input_buf[idx] != '\0'; i++) {
     //get fuel
     storage_idx = 0;
@@ -737,15 +752,27 @@ static inline void add_station(const uint8_t* input_buf) {
     printf("fuel: %d\n", fuel);
 #endif
 
+    fuels[i] = fuel;
+  }
+  
+  qsort(fuels, cars, sizeof(uint32_t), compare);
+  for (uint32_t i=0; i<cars; i++) {
     //first fuel ? if yes add station and fuel
     if (i == 0) {
-      g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, fuel, 1);
+      g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, fuels[i], 1);
     //else update the node fuel values
     } else {
-      g_last_created_station_node->fuels = fuel_list_insert_node(g_last_created_station_node->fuels, fuel, 1);
+      if (fuels[i] == fuels[i-1]) {
+        fuel_list_update_count(g_last_created_station_node->fuels, fuels[i], 1); 
+      } else {
+        g_last_created_station_node->fuels = fuel_list_insert_node(g_last_created_station_node->fuels, fuels[i], 1);
+      }
     }
   }
+
   printf("%s\n", AGGIUNTA);
+
+  free(fuels);
 
   //signal the map has changed
   g_map_changed = 1;
@@ -781,6 +808,7 @@ static inline void remove_station(const uint8_t* input_buf) {
   }
 }
 
+//TODO: check if inout can overflow 512 cars
 static inline void add_car(const uint8_t* input_buf) {
   uint32_t idx = 14;
   int32_t fuel = 0;
@@ -819,9 +847,13 @@ static inline void add_car(const uint8_t* input_buf) {
   printf("fuel: %d\n", fuel);
 #endif
 
-  station_node->fuels = fuel_list_insert_node(station_node->fuels, fuel, 1);
-  printf("%s\n", AGGIUNTA);
+  //try to update an ond node count with the same fuel level
+  uint8_t res = fuel_list_update_count(station_node->fuels, fuel, 1);
+  if (!res) {
+    station_node->fuels = fuel_list_insert_node(station_node->fuels, fuel, 1);
+  }
 
+  printf("%s\n", AGGIUNTA);
   //signal map has changed
   g_map_changed = 1;
 }
@@ -864,8 +896,14 @@ static inline void remove_car(const uint8_t* input_buf) {
   printf("fuel: %d\n", fuel);
 #endif
 
-  if (fuel_list_update_count(station_node->fuels, fuel, -1)) {
+  int8_t res = fuel_list_update_count(station_node->fuels, fuel, -1);
+  if (res) {
     printf("%s\n", ROTTAMATA);
+
+    if (res == TO_BE_DELETED) {
+      station_node->fuels = fuel_list_remove_node(station_node->fuels, fuel);
+    }
+
     //signal the map has changed
     g_map_changed = 1;
   } else {
@@ -905,6 +943,13 @@ static inline void compute_path(const uint8_t* input_buf) {
   printf("to: %d\n", to);
 #endif
 
+  //early return if equal
+  if(from == to) {
+    printf("%d\n", from);
+    return;
+  }
+
+  //requested stations do exist by definiton (?)
   //fist compute the path existance
   BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, from);
   BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, to);
@@ -913,7 +958,8 @@ static inline void compute_path(const uint8_t* input_buf) {
     return;
   }
 
-  //if does exist compute the flatten road, if changed
+  //compute the flatten road, if changed
+  // stations_list_bst_to_array();
   if (g_map_changed) {
     g_map_changed = 0;
     stations_list_bst_to_array();
@@ -933,8 +979,6 @@ static inline void compute_path(const uint8_t* input_buf) {
 void parse_cmd() {
   uint8_t buf[1024];
   while(fgets((char*)buf, 1023, stdin)) {
-    // printf("%s\n", buf);
-
     //add station
     if (buf[0] == 'a' && buf[9] == 's') {
       add_station(buf); 
