@@ -606,12 +606,15 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
 }
 
 //given a best dp array, backtrack to the best path
-void backtrack_best_route(DpArrayRes in) {
+void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
 
   const uint32_t* fuels = in.filtered.fuels;
   const uint32_t* stations = in.filtered.stations;
   const uint32_t* dp = in.dp;
   const uint32_t size = in.size; 
+
+  uint32_t* storage_buf = 0;
+  uint32_t storage_buf_idx = 0;
  
   uint32_t queue_front = 0;
   uint32_t queue_back = 0;
@@ -626,13 +629,11 @@ void backtrack_best_route(DpArrayRes in) {
     Pair p = queue[queue_front++]; //increment front pointer
 
     if (p.jumps == 0) {
-      //TODO: use a single stdout
-      printf("%d ", stations[0]);
-      for (uint32_t i=0; i<p.buff_idx; i++) {
-        printf("%d ", stations[p.buff[i]]);
+      storage_buf_idx = p.buff_idx;
+      storage_buf = p.buff;
+      if (is_forward) {
+        break;
       }
-      printf("\n");
-      continue;
     }
 
     for (uint32_t i=1; i<=fuels[p.idx]; i++) {
@@ -660,6 +661,13 @@ void backtrack_best_route(DpArrayRes in) {
       }
     }
   }
+
+  //TODO: use a single stdout
+  printf("%d ", stations[0]);
+  for (uint32_t i=0; i<storage_buf_idx; i++) {
+    printf("%d ", stations[storage_buf[i]]);
+  }
+  printf("\n");
 
   for (uint32_t i=0; i<queue_size; ++i) {
     if (queue[i].buff) {
@@ -913,7 +921,7 @@ static inline void compute_path(const uint8_t* input_buf) {
   //compute min path with dp and rebuild the path with backtracking
   DpArrayRes dp_res = compute_min_path_dp(from, to);
   if (dp_res.dp[0] != INT_MAX) {
-    backtrack_best_route(dp_res);
+    backtrack_best_route(dp_res, from < to);
   } else {
     printf("%s\n", NP);
   }
@@ -971,7 +979,7 @@ int main() {
 //   DpArrayRes dp_res = compute_min_path_dp(10, 60);
 
 //   if (dp_res.dp[0] != INT_MAX) {
-//     backtrack_best_route(dp_res);
+//     backtrack_best_route(dp_res, 1);
 //   }
 //   free(dp_res.dp);
 //   free(dp_res.filtered.fuels);
