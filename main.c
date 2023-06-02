@@ -673,6 +673,7 @@ void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
         //TODO: no space left
         if (queue_back >= queue_size) {
           printf("need to realloc queue!\n");
+          exit(1);
           uint32_t old_size = queue_size;
           Pair* new_queue = realloc(queue, queue_size * 2 * sizeof(Pair));
           if (!new_queue) {
