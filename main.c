@@ -530,19 +530,19 @@ FilteredStationFuel get_stations_id_and_fuels_array(uint32_t lhs, uint32_t rhs, 
 }
 
 //the fuel index is to be intended coming from the array containing only the fuels, used in the dp computation
-static inline int32_t get_station_id_from_fuel_index(uint32_t idx) {
-  if (idx*2 >= g_stations_array.size) {
-    // printf("index %d overflow in <get_station_id_from_fuel_index>\n", idx*2);
-    return INT_MAX;
-  }
-  //g_stations_array:[1,2,3,4,5,6] -> with fuel_idx = 2(fuel 6) the original station id associated 5 
-  return g_stations_array.arr[idx * 2];
-}
+// static inline int32_t get_station_id_from_fuel_index(uint32_t idx) {
+//   if (idx*2 >= g_stations_array.size) {
+//     // printf("index %d overflow in <get_station_id_from_fuel_index>\n", idx*2);
+//     return INT_MAX;
+//   }
+//   //g_stations_array:[1,2,3,4,5,6] -> with fuel_idx = 2(fuel 6) the original station id associated 5 
+//   return g_stations_array.arr[idx * 2];
+// }
 
-static inline uint32_t get_stations_id_distance_diff_from_fuel_index(uint32_t a, uint32_t b) {
-  // printf("diff: %d\n", ans);
-  return abs(get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a));
-}
+// static inline uint32_t get_stations_id_distance_diff_from_fuel_index(uint32_t a, uint32_t b) {
+//   // printf("diff: %d\n", ans);
+//   return abs(get_station_id_from_fuel_index(b) - get_station_id_from_fuel_index(a));
+// }
 
 static inline uint32_t get_station_index_in_array_from_id(uint32_t id) {
   for (uint32_t i=0; i<g_stations_array.size; i+=2) {
@@ -588,19 +588,28 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
     int min = INT_MAX;
     if(steps > 0){
       for(int i=1; i<=steps; i++){
-        uint32_t idx_station_id = get_station_id_from_fuel_index(idx);
-        uint32_t idx_pi_station_id = get_station_id_from_fuel_index(idx+i);
-        if (start_station < end_station && idx_station_id + steps < idx_pi_station_id) {
-          break;
-        }
-        if (start_station > end_station && steps < idx_station_id && idx_station_id - steps > idx_pi_station_id) {
-          break;
-        }
+        // uint32_t idx_station_id = get_station_id_from_fuel_index(idx);
+        // uint32_t idx_pi_station_id = get_station_id_from_fuel_index(idx+i);
+        // if (start_station < end_station && idx_station_id + steps < idx_pi_station_id) {
+        //   printf("breaking A %d + %d -> %d\n", idx_station_id, i, idx_pi_station_id);
+        //   break;
+        // }
+        // if (start_station > end_station && steps < idx_station_id && idx_station_id - steps > idx_pi_station_id) {
+        //   printf("breaking B %d - %d -> %d\n", idx_station_id, i, idx_pi_station_id);
+        //   break;
+        // }
         if(idx+i < arr_size) {
           //update min if it is min and the step is reacheble as single steps have not weight = 1 but weight = get_stations_id_distance_diff_from_fuel_index
-          if (dp[idx+i] <= min && steps >= get_stations_id_distance_diff_from_fuel_index(idx, idx+i)) {
+          if (start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[idx+i] && dp[idx+i] <= min) {
+            min = dp[idx+i];
+          } else if (start_station > end_station && steps >= filtered.stations[idx] && dp[idx+i] <= min) {
+            min = dp[idx+i];
+          } else if (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[idx+i] && dp[idx+i] <= min) {
             min = dp[idx+i];
           }
+          // if (dp[idx+i] <= min && steps >= get_stations_id_distance_diff_from_fuel_index(idx, idx+i)) {
+          //   min = dp[idx+i];
+          // }
         }
       }
     }
@@ -632,7 +641,7 @@ void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
  
   uint32_t queue_front = 0;
   uint32_t queue_back = 0;
-  uint32_t queue_size = size * 2;
+  uint32_t queue_size = size * 1000;
   Pair* queue = calloc(queue_size, sizeof(Pair)); //TODO: dynamic size
   queue[queue_back].idx = 0;
   queue[queue_back].jumps = dp[0];
@@ -643,6 +652,15 @@ void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
     Pair p = queue[queue_front++]; //increment front pointer
 
     if (p.jumps == 0) {
+      // printf("%d ", stations[0]);
+      // for (uint32_t i=0; i<p.buff_idx; i++) {
+      //   if (i != p.buff_idx-1) {
+      //     printf("%d ", stations[p.buff[i]]);
+      //   } else {
+      //     printf("%d", stations[p.buff[i]]);
+      //   }
+      // }
+      printf("\n");
       storage_buf_idx = p.buff_idx;
       storage_buf = p.buff;
       if (is_forward) {
@@ -652,20 +670,24 @@ void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
 
     for (uint32_t i=1; i<=fuels[p.idx]; i++) {
       if (p.idx+i < size && p.jumps-1 == dp[p.idx+i]) {
-        //no space left
+        //TODO: no space left
         if (queue_back >= queue_size) {
+          printf("need to realloc queue!\n");
+          uint32_t old_size = queue_size;
           Pair* new_queue = realloc(queue, queue_size * 2 * sizeof(Pair));
           if (!new_queue) {
             printf("Realloc failed\n");
             exit(1);
           }
+          // memset(&queue[queue_back], 0, sizeof(Pair) * queue_size); //this gives memory issues
+          uint32_t new_size = queue_size * 2;
           queue_size *= 2;
           queue = new_queue;
         }
 
         queue[queue_back].idx = p.idx+i;
         queue[queue_back].jumps = p.jumps-1;
-        queue[queue_back].buff = malloc(sizeof(uint32_t) * size);
+        queue[queue_back].buff = calloc(size, sizeof(uint32_t));
 
         //copy the p buffer into the new node
         memcpy(queue[queue_back].buff, p.buff, sizeof(uint32_t) * p.buff_idx);
@@ -679,7 +701,11 @@ void backtrack_best_route(DpArrayRes in, uint32_t is_forward) {
   //TODO: use a single stdout
   printf("%d ", stations[0]);
   for (uint32_t i=0; i<storage_buf_idx; i++) {
-    printf("%d ", stations[storage_buf[i]]);
+    if (i != storage_buf_idx-1) {
+      printf("%d ", stations[storage_buf[i]]);
+    } else {
+      printf("%d", stations[storage_buf[i]]);
+    }
   }
   printf("\n");
 
@@ -954,7 +980,7 @@ static inline void compute_path(const uint8_t* input_buf) {
   BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, from);
   BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, to);
   if (!start_station_node || !end_station_node) {
-    printf("%s\n", NP);
+    printf("station not found %s\n", NP);
     return;
   }
 
@@ -1001,6 +1027,7 @@ void parse_cmd() {
 int main() {
   parse_cmd();
 
+  // print_stations_list_bst(g_stations_bst);
   stations_list_free(g_stations_bst);
   free(g_stations_array.arr);
   return 0;
