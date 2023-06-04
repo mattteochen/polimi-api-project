@@ -795,7 +795,7 @@ static inline void add_station(const uint8_t* input_buf) {
 
   //get car nums
   storage_idx = 0;
-  while (input_buf[idx] != ' ') {
+  while (input_buf[idx] != ' ' && input_buf[idx] != '\n' && input_buf[idx] != '\0') {
     storage[storage_idx++] = input_buf[idx++];
   }
   idx++;
