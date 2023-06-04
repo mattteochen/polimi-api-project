@@ -353,6 +353,30 @@ void fuel_list_free(FuelListNode* root) {
   free(root);
 }
 
+void fuel_list_bst_to_array_rec(FuelListNode* root, uint32_t* buff, uint32_t* idx) {
+  if (root == NULL) {
+    return;
+  }
+
+  fuel_list_bst_to_array_rec(root->left, buff, idx);
+  buff[*idx] = root->fuel_level;
+  (*idx)++;
+  buff[*idx] = root->count;
+  (*idx)++;
+  fuel_list_bst_to_array_rec(root->right, buff, idx);
+}
+
+uint32_t* fuel_list_bst_to_array(FuelListNode* root) {
+  if (!root) {
+    return 0;
+  }
+  uint32_t* buff = malloc(sizeof(uint32_t) * 512 * 2);
+  memset(buff, -1, sizeof(uint32_t) * 512 * 2); //max 512 different fuel levels
+  uint32_t idx = 0;
+  fuel_list_bst_to_array_rec(root, buff, &idx);
+  return buff;
+}
+
 //------------------------BINARY SEARCH TREE - STATION LIST------------------------
 
 //This station_id structure is used to store the g_stations_bst with the max available car autonomy in a sorted manner
@@ -397,27 +421,38 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
   } else if (station_id > root->station_id) {
     root->right = stations_list_remove_node(root->right, station_id);
   } else {
-    g_stations_size--;
-
-    // Case 1: No child or one child
+    // Case 1: No child
     if (!root->left && !root->right) {
       fuel_list_free(root->fuels); 
       free(root);
+      g_stations_size--;
       return NULL;
     }
 
     // Case 2: One child
     if (root->left == NULL || root->right == NULL) {
-      BstStationsListNode* temp = root->right;
-      temp = !root->left ? root->right : root->left;
+      BstStationsListNode* temp = !root->left ? root->right : root->left;
       fuel_list_free(root->fuels); 
       free(root);
+      g_stations_size--;
       return temp;
     }
 
     // Case 3: Two children
     BstStationsListNode* minRight = stations_list_find_min_node(root->right);
     root->station_id = minRight->station_id;
+    fuel_list_free(root->fuels);
+    root->fuels = 0;
+    uint32_t* fuels_to_copy = fuel_list_bst_to_array(minRight->fuels);
+    if (!fuels_to_copy) {
+      printf("Fuels to copy is null\n");
+      exit(1);
+    }
+    for (uint32_t i=0; i<512*2 && fuels_to_copy[i] != -1; i+=2) {
+      root->fuels = fuel_list_insert_node(root->fuels, fuels_to_copy[i], fuels_to_copy[i+1]);
+    }
+    free(fuels_to_copy);
+    g_map_changed = 1;
     root->right = stations_list_remove_node(root->right, minRight->station_id);
   }
 
