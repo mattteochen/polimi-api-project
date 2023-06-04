@@ -13,7 +13,7 @@ tests = os.listdir("./tests")
 
 ins = {}
 for test in tests:
-    if not test.endswith(".output.txt"):
+    if not test.endswith(".output.txt") and not test.endswith(".DS_Store"):
         ins[f'{test[0:len(test)-len(".txt")]}'] = {"in": test, "out": test[0:len(test)-len(".txt")]+".output.txt"}
 
 for test in ins:
