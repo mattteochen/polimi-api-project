@@ -13,10 +13,14 @@
 #define DEBUG_PATH_CMP 0
 #define DEBUG_QUEUE_PTR 0
 #define DEBUG_MAX_QUEUE 0
-#define USE_DFS 1
+#define USE_DFS 0
+#define USE_BSF 0
+#define USE_DP 1
 
 #define TO_BE_DELETED 1
 #define NOT_BE_DELETED 2
+
+#define MAX_FUEL_DIFFERENT_COUNT 513
 
 const char AGGIUNTA[] = "aggiunta";
 const char NON_AGGIUNTA[] = "non aggiunta";
@@ -52,8 +56,13 @@ typedef struct {
 } StationArray;
 
 typedef struct {
+  uint32_t max_reach;
+  uint32_t steps;
+} Dp;
+
+typedef struct {
   uint32_t size;
-  uint32_t* dp;
+  Dp* dp;
   FilteredStationFuel filtered;
 } DpArrayRes;
 
@@ -77,17 +86,6 @@ typedef struct {
   uint32_t* buff;
   uint32_t buff_idx;
 } Pair;
-
-// typedef struct {
-//   uint32_t fuel_level;
-//   uint32_t count;
-// } PriorityQueueNode;
-
-// typedef struct {
-//   PriorityQueueNode* heap;
-//   int capacity;
-//   int size;
-// } PriorityQueue;
 
 uint32_t g_stations_size = 0;
 BstStationsListNode* g_stations_bst = 0;
@@ -121,115 +119,6 @@ Str2IntErrNo str2int(int *out, char *s, int base) {
   *out = l;
   return STR2INT_SUCCESS;
 }
-
-//------------------------PRIORITY QUEUE - FUEL LIST------------------------
-
-//This structure is used to store the all the fuels in a sorted manner for a given station
-
-// void resize_priority_queue(PriorityQueue* pq, int capacity) {
-//   if (pq->size > capacity) {
-//     printf("Can not fill old heap into new one");
-//     return;
-//   }
-//   PriorityQueueNode* new_heap = realloc(pq->heap, sizeof(PriorityQueueNode) * capacity);
-//   if (!new_heap) {
-//     printf("Realloc failed");
-//     exit(1);
-//   }
-//   pq->heap = new_heap;
-//   pq->capacity = capacity;
-// }
-
-// PriorityQueue* create_priority_queue(int capacity) {
-//   PriorityQueue* pq = (PriorityQueue*)malloc(sizeof(PriorityQueue));
-//   pq->heap = (PriorityQueueNode*)malloc((capacity) * sizeof(PriorityQueueNode));
-//   pq->capacity = capacity;
-//   pq->size = 0;
-//   return pq;
-// }
-
-// void swap(PriorityQueueNode* a, PriorityQueueNode* b) {
-//   PriorityQueueNode temp = *a;
-//   *a = *b;
-//   *b = temp;
-// }
-
-// void heapify(PriorityQueue* pq, int index) {
-//   PriorityQueueNode* array = pq->heap; 
-//   int size = pq->size;
-//   if (size > 1) {
-//     // Find the largest among root, left child and right child
-//     int largest = index;
-//     int l = 2 * index + 1;
-//     int r = 2 * index + 2;
-//     if (l < size && array[l].fuel_level > array[largest].fuel_level)
-//       largest = l;
-//     if (r < size && array[r].fuel_level > array[largest].fuel_level)
-//       largest = r;
-
-//     // Swap and continue heapifying if root is not largest
-//     if (largest != index) {
-//       swap(&array[index], &array[largest]);
-//       heapify(pq, largest);
-//     }
-//   }
-// }
-
-// void enqueue_priority_queue(PriorityQueue* pq, int fuel_level, int count) {
-//   PriorityQueueNode* array = pq->heap;
-//   if (pq->size == 0) {
-//     array[0].fuel_level = fuel_level;
-//     array[0].count = count;
-//     pq->size++;
-//   } else {
-//     array[pq->size].fuel_level = fuel_level;
-//     array[pq->size].count = count;
-//     pq->size++;
-//     for (int i=(pq->size / 2 - 1); i >= 0; i--) {
-//       heapify(pq, i);
-//     }
-//   }
-// }
-
-// //currently, a not present node dequeue is not supported
-// void dequeue_priority_queue(PriorityQueue* pq, int fuel_level) {
-//   PriorityQueueNode* array = pq->heap;
-//   uint32_t i;
-//   for (i = 0; i < pq->size; i++) {
-//     if (fuel_level == array[i].fuel_level)
-//       break;
-//   }
-
-//   swap(&array[i], &array[pq->size - 1]);
-//   pq->size--;
-//   for (int i=(pq->size / 2 - 1); i >= 0; i--) {
-//     heapify(pq, i);
-//   }
-// }
-
-// PriorityQueueNode* front_priority_queue(PriorityQueue* pq) {
-//   if (pq->size == 0) {
-//     printf("PriorityQueue is empty. No front_priority_queue element.\n");
-//     return 0;
-//   }
-
-//   return &(pq->heap[0]);
-// }
-
-// int is_priority_queue_empty(PriorityQueue* pq) {
-//   return pq->size == 0;
-// }
-
-// void print_priority_queue(PriorityQueue* pq) {
-//   for (int i = 0; i < pq->size; ++i)
-//     printf("f: %d - c: %d\n", pq->heap[i].fuel_level, pq->heap[i].count);
-//   printf("\n\n");
-// }
-
-// void fee_priority_queue(PriorityQueue* pq) {
-//   free(pq->heap);
-//   free(pq);
-// }
 
 // //------------------------BINARY SEARCH TREE - FUEL LIST------------------------
 
@@ -373,8 +262,8 @@ uint32_t* fuel_list_bst_to_array(FuelListNode* root) {
   if (!root) {
     return 0;
   }
-  uint32_t* buff = malloc(sizeof(uint32_t) * 512 * 2);
-  memset(buff, -1, sizeof(uint32_t) * 512 * 2); //max 512 different fuel levels
+  uint32_t* buff = malloc(sizeof(uint32_t) * MAX_FUEL_DIFFERENT_COUNT * 2);
+  memset(buff, -1, sizeof(uint32_t) * MAX_FUEL_DIFFERENT_COUNT * 2); //max 512 different fuel levels
   uint32_t idx = 0;
   fuel_list_bst_to_array_rec(root, buff, &idx);
   return buff;
@@ -441,7 +330,7 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
       return temp;
     }
 
-    // Case 3: Two children
+    // Case 3: Two children, we have to remap the moved station id fuel list too!
     BstStationsListNode* minRight = stations_list_find_min_node(root->right);
     root->station_id = minRight->station_id;
     fuel_list_free(root->fuels);
@@ -451,7 +340,7 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
       printf("Fuels to copy is null\n");
       exit(1);
     }
-    for (uint32_t i=0; i<512*2 && fuels_to_copy[i] != -1; i+=2) {
+    for (uint32_t i=0; i<MAX_FUEL_DIFFERENT_COUNT*2 && fuels_to_copy[i] != -1; i+=2) {
       root->fuels = fuel_list_insert_node(root->fuels, fuels_to_copy[i], fuels_to_copy[i+1]);
     }
     free(fuels_to_copy);
@@ -597,50 +486,196 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   //filter out only the needed stations max fuels
   FilteredStationFuel filtered =
     get_stations_id_and_fuels_array(start_station, end_station, arr_size, start_station < end_station ? 1 : -1);
-  uint32_t* dp = calloc(arr_size, sizeof(uint32_t));
+  Dp* dp = calloc(arr_size, sizeof(Dp));
 
 #if DEBUG_FILTER
   printf("arr size: %d\n", arr_size);
   for (int i=0; i<arr_size; i++) {
-    printf("s: %d f: %d m %d\n", filtered.stations[i], filtered.fuels[i], filtered.stations[i]-filtered.fuels[i]);
+    printf("s: %d f: %d m %d\n", filtered.stations[i], filtered.fuels[i], start_station > end_station ? filtered.stations[i]-filtered.fuels[i] : filtered.stations[i] + filtered.fuels[i]);
   }
   printf("\n");
 #endif
 
+  dp[arr_size-1].steps = 0;
+  dp[arr_size-1].max_reach = arr_size-1;
   for(int idx=arr_size-2; idx>=0; idx--){ //do not use uint32_t as this will go negative
     uint32_t steps = filtered.fuels[idx];
 
-    int min = INT_MAX;
+    uint32_t min = INT_MAX;
+    int32_t max_reach = INT_MIN;
     if(steps > 0){
-      for(int i=idx+1; i<arr_size; ++i){
-        if ((start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[i] && dp[i] <= min) ||
-            (start_station > end_station && steps >= filtered.stations[idx] && dp[i] <= min) ||
-            (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[i] && dp[i] <= min)) {
-          min = dp[i];
+      for(uint32_t i=idx+1; i<arr_size; ++i){
+        if ((start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[i] && dp[i].steps <= min) ||
+            (start_station > end_station && steps >= filtered.stations[idx] && dp[i].steps <= min) ||
+            (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[i] && dp[i].steps <= min)) {
+          min = dp[i].steps;
+          max_reach = i;
         }
       }
     }
-    dp[idx] = min == INT_MAX ? min : min+1;
+    dp[idx].steps = min == INT_MAX ? min : min+1;
+    dp[idx].max_reach = max_reach == INT_MIN ? 0 : max_reach; //null pointer signals that max reach is station[idx] + fuels[idx] 
   }
 
 #if (DEBUG_DP_ARRAY)
   for (uint32_t i=0; i<arr_size; ++i) {
-    printf("dp[i] %d station[i]%d\n", dp[i], filtered.stations[i]);
+    printf("station %d dp %d mr %d\n", filtered.stations[i], dp[i].steps,
+           dp[i].max_reach ? filtered.stations[dp[i].max_reach] : start_station < end_station ? filtered.stations[i] + filtered.fuels[i] : filtered.stations[i] - filtered.fuels[i]);
   }
 #endif
+
+#if USE_DP
+  if (start_station > end_station && dp[0].steps != INT_MAX) {
+    FilteredStationFuel forward_filter =
+      get_stations_id_and_fuels_array(start_station, end_station, arr_size, 1);
+    
+    Dp* swapped_dp = calloc(arr_size, sizeof(Dp)); //create a reversed dp array to facilitate the mapping with the forward_filter.*
+    uint32_t swapped_dp_idx = arr_size-1;
+    for (uint32_t i=0; i<arr_size; i++) {
+      swapped_dp[swapped_dp_idx--] = dp[i];
+    }
+    Dp* forward_dp = calloc(arr_size, sizeof(Dp));
+    for (uint32_t i=0; i<arr_size; i++) {
+      forward_dp[i].steps = INT_MAX;
+    }
+    forward_dp[arr_size-1].steps = 0;
+    forward_dp[arr_size-1].max_reach = arr_size-1;
+
+    int32_t curr_idx = arr_size-1;
+    int32_t curr_idx_rhs = arr_size-1;
+    uint32_t curr_dp_steps = 0;
+    while (curr_idx >= 0) {
+      //fill dp[x] = 1
+      if (curr_dp_steps == 0) {
+        //get the leftmost bound
+        int32_t step_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
+        if (step_limit < 0) {
+          step_limit = 0;
+        }
+        int32_t new_idx_rhs = -1;
+        for (uint32_t i=0; i<arr_size-1; i++) {
+          if (forward_filter.stations[i] < step_limit) {
+            continue;
+          }
+          if (new_idx_rhs == -1) {
+            new_idx_rhs = i;
+          }
+          forward_dp[i].steps = curr_dp_steps+1;
+          forward_dp[i].max_reach = arr_size-1;
+        }
+        curr_idx = new_idx_rhs - 1;
+        curr_idx_rhs = new_idx_rhs;
+        curr_dp_steps++;
+      //fill others
+      } else {
+        //get the max step_limit across all the dp[curr_dp_steps-1]
+        int32_t max_step_limit = INT_MAX;
+        for (uint32_t i=curr_idx_rhs; i<arr_size; i++) {
+          if (forward_dp[i].steps != curr_dp_steps) {
+            continue;
+          }
+          int32_t step_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
+          if (step_limit < 0) {
+            step_limit = 0;
+          }
+          if (step_limit < max_step_limit) {
+            max_step_limit = step_limit;
+          }
+        }
+
+        int32_t new_idx_rhs = -1;
+        //compute dp for dp_step_to_check
+        for (uint32_t i=0; i<curr_idx_rhs; i++) {
+          if (forward_filter.stations[i] < max_step_limit) {
+            continue;
+          }
+          if (new_idx_rhs == -1) {
+            new_idx_rhs = i;
+          }
+          //now this index can be reached, find the min parent
+          for (uint32_t j=curr_idx_rhs; i<arr_size; j++) {
+            if (forward_dp[j].steps != curr_dp_steps) {
+              continue;
+            }
+            int32_t step_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
+            if (step_limit < 0) {
+              step_limit = 0;
+            }
+            if (forward_filter.stations[i] >= step_limit) {
+              forward_dp[i].steps = curr_dp_steps + 1;
+              forward_dp[i].max_reach = j;
+              break; //found the min, exit
+            }
+          }
+        }
+        curr_idx = new_idx_rhs - 1;
+        curr_idx_rhs = new_idx_rhs;
+        curr_dp_steps++;
+      }
+    }
+  
+    //create the solution
+    int32_t* buff = calloc(arr_size, sizeof(uint32_t));
+    memset(buff, -1, sizeof(uint32_t) * arr_size);
+    uint32_t buff_idx = 0;
+    Dp* curr_ptr = forward_dp;
+    buff[buff_idx++] = forward_filter.stations[0];
+
+    while (curr_ptr < &forward_dp[arr_size-1]) {
+      //save the id
+      buff[buff_idx++] = forward_filter.stations[curr_ptr->max_reach];
+      //move to to the next ptr
+      curr_ptr = &forward_dp[curr_ptr->max_reach];
+    }
+    for (int32_t i=buff_idx-1; i>=0; i--) {
+      if (i == 0) {
+        printf("%d\n", buff[i]);
+      } else {
+        printf("%d ", buff[i]);
+      }
+    }
+
+    free(buff);
+    free(forward_dp);
+    free(forward_filter.stations);
+    free(forward_filter.fuels);
+    free(swapped_dp);
+  } else if (start_station < end_station && dp[0].steps != INT_MAX) {
+    Dp* ptr = dp;
+    printf("%d ", filtered.stations[0]);
+    while (ptr < &(dp[arr_size-1])) {
+      int32_t min_idx = ptr->max_reach;
+      if (ptr->max_reach == arr_size-1) {
+        printf("%d\n", filtered.stations[arr_size-1]);
+        break;
+      } else {
+        //go backwards to find the min idx with the same dp result
+        for (int32_t i=ptr->max_reach-1; i>=0; i--) {
+          if (dp[i].steps == dp[ptr->max_reach].steps) {
+            min_idx = i;
+          }
+        }
+        //min_idx is the new max_reach
+        printf("%d ", filtered.stations[min_idx]);
+      }
+      ptr = &(dp[min_idx]);
+    }
+  }
+#endif
+
   ret.dp = dp;
   ret.filtered = filtered;
   ret.size = arr_size;
   return ret;
 }
 
-#if USE_DFS == 0
+#if USE_BSF
 //given a best dp array, backtrack to the best path
 void backtrack_bfs_best_route(DpArrayRes in, uint32_t is_forward) {
 
   const uint32_t* fuels = in.filtered.fuels;
   const uint32_t* stations = in.filtered.stations;
-  const uint32_t* dp = in.dp;
+  const Dp* dp = in.dp;
   const uint32_t size = in.size; 
 
   uint32_t* storage_buf = 0;
@@ -651,7 +686,7 @@ void backtrack_bfs_best_route(DpArrayRes in, uint32_t is_forward) {
   uint32_t queue_size = 100 * pow(2,20);
   Pair* queue = calloc(queue_size, sizeof(Pair)); //TODO: dynamic size
   queue[queue_back].idx = 0;
-  queue[queue_back].jumps = dp[0];
+  queue[queue_back].jumps = dp[0].steps;
   queue[queue_back].buff_idx = 0;
   queue[queue_back++].buff = calloc(size, sizeof(uint32_t)); //size is the max upperbound
   
@@ -734,7 +769,7 @@ void backtrack_bfs_best_route(DpArrayRes in, uint32_t is_forward) {
     }
 
     for (uint32_t i=p.idx+1; i<size; ++i) {
-      if (p.jumps-1 == dp[i]) {
+      if (p.jumps-1 == dp[i].steps) {
         //check if fuel can reach next dp station
         if (is_forward && stations[p.idx] + fuels[p.idx] < stations[i]) {
           continue;
@@ -797,14 +832,12 @@ void backtrack_bfs_best_route(DpArrayRes in, uint32_t is_forward) {
   printf("max %d\n", max);
 #endif
 }
-
-#else
-
+#elif USE_DFS
 uint8_t dfs_stop = 0;
 
 void backtrack_dfs_best_route_rev(DpArrayRes dp_res, uint32_t last_dp, uint32_t index, uint32_t* buff, uint32_t buff_idx) {
 
-  uint32_t* dp = dp_res.dp;
+  Dp* dp = dp_res.dp;
   uint32_t* stations = dp_res.filtered.stations;
   uint32_t* fuels = dp_res.filtered.fuels;
   uint32_t size = dp_res.size;
@@ -824,9 +857,9 @@ void backtrack_dfs_best_route_rev(DpArrayRes dp_res, uint32_t last_dp, uint32_t 
   }
 
   for (int32_t i=index-1; i>=0; i--) {
-    if (dp[i] == last_dp+1 && ((fuels[i] >= stations[i])||(stations[i] - fuels[i] <= stations[index]))) {
+    if (dp[i].steps == last_dp+1 && ((fuels[i] >= stations[i])||(stations[i] - fuels[i] <= stations[index]))) {
       if (!dfs_stop) {
-        backtrack_dfs_best_route_rev(dp_res, dp[i], i, buff, buff_idx+1);
+        backtrack_dfs_best_route_rev(dp_res, dp[i].steps, i, buff, buff_idx+1);
       }
     }
   }
@@ -834,7 +867,7 @@ void backtrack_dfs_best_route_rev(DpArrayRes dp_res, uint32_t last_dp, uint32_t 
 
 void backtrack_dfs_best_route_for(DpArrayRes dp_res, uint32_t last_dp, uint32_t index, uint32_t* buff, uint32_t buff_idx) {
 
-  uint32_t* dp = dp_res.dp;
+  Dp* dp = dp_res.dp;
   uint32_t* stations = dp_res.filtered.stations;
   uint32_t* fuels = dp_res.filtered.fuels;
   uint32_t size = dp_res.size;
@@ -854,9 +887,9 @@ void backtrack_dfs_best_route_for(DpArrayRes dp_res, uint32_t last_dp, uint32_t 
   }
 
   for (int32_t i=index+1; i<size; i++) {
-    if (dp[i] == last_dp-1 && ((stations[index] + fuels[index] >= stations[i]))) {
+    if (dp[i].steps == last_dp-1 && ((stations[index] + fuels[index] >= stations[i]))) {
       if (!dfs_stop) {
-        backtrack_dfs_best_route_for(dp_res, dp[i], i, buff, buff_idx+1);
+        backtrack_dfs_best_route_for(dp_res, dp[i].steps, i, buff, buff_idx+1);
       }
     }
   }
@@ -980,7 +1013,6 @@ static inline void remove_station(const uint8_t* input_buf) {
   }
 }
 
-//TODO: check if inout can overflow 512 cars
 static inline void add_car(const uint8_t* input_buf) {
   uint32_t idx = 14;
   int32_t fuel = 0;
@@ -1137,16 +1169,16 @@ static inline void compute_path(const uint8_t* input_buf) {
   }
   //compute min path with dp and rebuild the path with backtracking
   DpArrayRes dp_res = compute_min_path_dp(from, to);
-  if (dp_res.dp[0] != INT_MAX) {
-#if USE_DFS == 0
-    backtrack_bfs_best_route(dp_res, from > to);
-#else
+  if (dp_res.dp[0].steps != INT_MAX) {
+#if USE_BSF
+    backtrack_bfs_best_route(dp_res, from < to);
+#elif USE_DFS
     dfs_stop = 0;
     uint32_t* buff = calloc(dp_res.size, sizeof(uint32_t));
     if (from > to) {
       backtrack_dfs_best_route_rev(dp_res, 0, dp_res.size-1, buff, 0);
     } else {
-      backtrack_dfs_best_route_for(dp_res, dp_res.dp[0], 0, buff, 0);
+      backtrack_dfs_best_route_for(dp_res, dp_res.dp[0].steps, 0, buff, 0);
     }
     free(buff);
 #endif
@@ -1159,9 +1191,9 @@ static inline void compute_path(const uint8_t* input_buf) {
 }
 
 void parse_cmd() {
-  uint8_t buf[1024 * 5];
-  memset(buf, 0, sizeof(uint8_t) * 1024 * 5);
-  while(fgets((char*)buf, (1024 * 20 - 1), stdin)) {
+  uint8_t buf[1024 * 100];
+  memset(buf, 0, sizeof(uint8_t) * 1024 * 100);
+  while(fgets((char*)buf, (1024 * 100 - 1), stdin)) {
     //add station
     if (buf[0] == 'a' && buf[9] == 's') {
       add_station(buf); 
