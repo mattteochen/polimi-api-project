@@ -1,11 +1,10 @@
-#include <string.h>
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
-#include <errno.h>
-#include <ctype.h>
-#include <math.h>
+#include <string.h>
 
 #define DEBUG_DP_ARRAY 0
 #define DEBUG_FILTER 0
@@ -16,6 +15,10 @@
 #define USE_DFS 0
 #define USE_BSF 0
 #define USE_DP 1
+
+#if USE_DFS || USE_BSF
+#include <math.h>
+#endif
 
 #define TO_BE_DELETED 1
 #define NOT_BE_DELETED 2
@@ -51,7 +54,7 @@ typedef struct {
 } FilteredStationFuel;
 
 typedef struct {
-  uint32_t size; //used to track how much buffer has been used, after a flatten action this must be equal to the max buf size by design
+  uint32_t size; //used to track how much buffer has been used, after a flatten (from a bst) action this must be equal to the max buf size by design
   uint32_t* arr; //flatten 2d array ([station,fuel]) into 1d array
 } StationArray;
 
@@ -80,21 +83,23 @@ typedef struct BstStationsListNode {
   struct BstStationsListNode* right;
 } BstStationsListNode;
 
+#if USE_BFS
 typedef struct {
   int32_t idx;
   int32_t jumps;
   uint32_t* buff;
   uint32_t buff_idx;
 } Pair;
+#endif
 
 uint32_t g_stations_size = 0;
 BstStationsListNode* g_stations_bst = 0;
 BstStationsListNode* g_last_created_station_node = 0;
+BstStationsListNode* g_last_modified_station_node = 0;
 uint8_t g_map_changed = 0;
 StationArray g_stations_array = {0, 0};
 
-int32_t compare( const void* a, const void* b)
-{
+int32_t compare( const void* a, const void* b) {
   uint32_t int_a = * ( (uint32_t*) a );
   uint32_t int_b = * ( (uint32_t*) b );
 
@@ -478,6 +483,25 @@ static inline uint32_t get_stations_between(uint32_t lhs, uint32_t rhs) {
   }
 }
 
+//binary search
+int32_t find_sorted_arr(uint32_t* arr, uint32_t t, int32_t low, int32_t high) {
+  while (low <= high) {
+    int32_t mid = low + (high - low) / 2;
+
+    if (arr[mid] == t) {
+      return mid;
+    }
+
+    if (arr[mid] < t) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return -1;
+}
+
 //the caller must check that start and end stations do exist in the current map
 DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   DpArrayRes ret = {0, 0, {0, 0}};
@@ -525,6 +549,8 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
 #endif
 
 #if USE_DP
+  //other methods like bfs and dfs uses the dp_res to backtrack the best path indipendently from the route direction.
+  //here with the dp table backtrack we need a turnaround in case start_station > end_station
   if (start_station > end_station && dp[0].steps != INT_MAX) {
     FilteredStationFuel forward_filter =
       get_stations_id_and_fuels_array(start_station, end_station, arr_size, 1);
@@ -548,15 +574,13 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       //fill dp[x] = 1
       if (curr_dp_steps == 0) {
         //get the leftmost bound
-        int32_t step_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
-        if (step_limit < 0) {
-          step_limit = 0;
+        int32_t step_left_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
+        if (step_left_limit < 0) {
+          step_left_limit = 0;
         }
         int32_t new_idx_rhs = -1;
-        for (uint32_t i=0; i<arr_size-1; i++) {
-          if (forward_filter.stations[i] < step_limit) {
-            continue;
-          }
+        //binary search won't return -1 by design
+        for (uint32_t i=find_sorted_arr(forward_filter.stations, step_left_limit, 0, arr_size-1); i<arr_size-1; i++) {
           if (new_idx_rhs == -1) {
             new_idx_rhs = i;
           }
@@ -568,40 +592,37 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
         curr_dp_steps++;
       //fill others
       } else {
-        //get the max step_limit across all the dp[curr_dp_steps-1]
-        int32_t max_step_limit = INT_MAX;
+        //get the max step_left_limit across all the dp[curr_dp_steps]
+        int32_t max_step_left_limit = INT_MAX;
         for (uint32_t i=curr_idx_rhs; i<arr_size; i++) {
           if (forward_dp[i].steps != curr_dp_steps) {
             continue;
           }
-          int32_t step_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
-          if (step_limit < 0) {
-            step_limit = 0;
+          int32_t step_left_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
+          if (step_left_limit < 0) {
+            step_left_limit = 0;
           }
-          if (step_limit < max_step_limit) {
-            max_step_limit = step_limit;
+          if (step_left_limit < max_step_left_limit) {
+            max_step_left_limit = step_left_limit;
           }
         }
 
         int32_t new_idx_rhs = -1;
-        //compute dp for dp_step_to_check
-        for (uint32_t i=0; i<curr_idx_rhs; i++) {
-          if (forward_filter.stations[i] < max_step_limit) {
-            continue;
-          }
+        //binary search won't return -1 by design
+        for (uint32_t i=find_sorted_arr(forward_filter.stations, max_step_left_limit, 0, arr_size-1); i<curr_idx_rhs; i++) {
           if (new_idx_rhs == -1) {
             new_idx_rhs = i;
           }
-          //now this index can be reached, find the min parent
+          //now this index i can be reached, find the min parent
           for (uint32_t j=curr_idx_rhs; i<arr_size; j++) {
             if (forward_dp[j].steps != curr_dp_steps) {
               continue;
             }
-            int32_t step_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
-            if (step_limit < 0) {
-              step_limit = 0;
+            int32_t step_left_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
+            if (step_left_limit < 0) {
+              step_left_limit = 0;
             }
-            if (forward_filter.stations[i] >= step_limit) {
+            if (forward_filter.stations[i] >= step_left_limit) {
               forward_dp[i].steps = curr_dp_steps + 1;
               forward_dp[i].max_reach = j;
               break; //found the min, exit
@@ -1032,11 +1053,19 @@ static inline void add_car(const uint8_t* input_buf) {
   printf("station: %d\n", station_id);
 #endif
 
-  BstStationsListNode* station_node = stations_list_search(g_stations_bst, station_id);
+  BstStationsListNode* station_node = 0;
+  if (g_last_modified_station_node && g_last_modified_station_node->station_id == station_id) {
+    station_node = g_last_modified_station_node;
+  } else {
+    station_node = stations_list_search(g_stations_bst, station_id);
+  }
   if (!station_node) {
     printf("%s\n", NON_AGGIUNTA);
     return;
   }
+
+  //update the last modified station node
+  g_last_modified_station_node = station_node;
 
   //get fuel
   storage_idx = 0;
@@ -1081,11 +1110,19 @@ static inline void remove_car(const uint8_t* input_buf) {
   printf("station: %d\n", station_id);
 #endif
 
-  BstStationsListNode* station_node = stations_list_search(g_stations_bst, station_id);
+  BstStationsListNode* station_node = 0;
+  if (g_last_modified_station_node && g_last_modified_station_node->station_id == station_id) {
+    station_node = g_last_modified_station_node;
+  } else {
+    station_node = stations_list_search(g_stations_bst, station_id);
+  }
   if (!station_node) {
     printf("%s\n", NON_ROTTAMATA);
     return;
   }
+
+  //update the last modified station node
+  g_last_modified_station_node = station_node;
 
   //get fuel
   storage_idx = 0;
