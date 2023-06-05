@@ -575,6 +575,7 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       if (curr_dp_steps == 0) {
         //get the leftmost bound
         int32_t step_left_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
+        // int32_t step_left_limit = filtered.stations[swapped_dp[curr_idx].max_reach]; //this opt doesn't do that much
         if (step_left_limit < 0) {
           step_left_limit = 0;
         }
@@ -594,11 +595,14 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       } else {
         //get the max step_left_limit across all the dp[curr_dp_steps]
         int32_t max_step_left_limit = INT_MAX;
+        //don't stop after the dp[i] changes value, we could have a dp sequence like: ...7776565444...
+        //yes, this O(n) is quite pricy as it is run every time, maybe consider a map saving the rhs and lhs
         for (uint32_t i=curr_idx_rhs; i<arr_size; i++) {
           if (forward_dp[i].steps != curr_dp_steps) {
             continue;
           }
           int32_t step_left_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
+          // int32_t step_left_limit = filtered.stations[swapped_dp[i].max_reach]; //this opt doesn't do that much
           if (step_left_limit < 0) {
             step_left_limit = 0;
           }
@@ -613,12 +617,13 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
           if (new_idx_rhs == -1) {
             new_idx_rhs = i;
           }
-          //now this index i can be reached, find the min parent
+          //now this index i can be reached cause it is <= max_step_left_limit, find the min parent
           for (uint32_t j=curr_idx_rhs; i<arr_size; j++) {
             if (forward_dp[j].steps != curr_dp_steps) {
               continue;
             }
             int32_t step_left_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
+            // int32_t step_left_limit = filtered.stations[swapped_dp[j].max_reach]; //this opt doesn't do that much
             if (step_left_limit < 0) {
               step_left_limit = 0;
             }
@@ -1204,7 +1209,7 @@ static inline void compute_path(const uint8_t* input_buf) {
     g_map_changed = 0;
     stations_list_bst_to_array();
   }
-  //compute min path with dp and rebuild the path with backtracking
+  //compute min path with dp and rebuild the path
   DpArrayRes dp_res = compute_min_path_dp(from, to);
   if (dp_res.dp[0].steps != INT_MAX) {
 #if USE_BSF
