@@ -552,7 +552,9 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   printf("\n");
 #endif
 
+#if USE_DP
   if (start_station < end_station) {
+#endif
     dp[arr_size-1].steps = 0;
     dp[arr_size-1].max_reach = arr_size-1;
     for(int idx=(arr_size-2); idx>=0; idx--){ //do not use uint32_t as this will go negative
@@ -573,7 +575,9 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       dp[idx].steps = min == INT_MAX ? min : min+1;
       dp[idx].max_reach = max_reach == INT_MIN ? 0 : max_reach; //null pointer signals that max reach is station[idx] + fuels[idx] 
     }
+#if USE_DP
   }
+#endif
 
 #if (DEBUG_DP_ARRAY)
   for (uint32_t i=0; i<arr_size; ++i) {
