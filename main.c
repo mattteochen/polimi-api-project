@@ -217,15 +217,15 @@ FuelListNode* fuel_list_search(FuelListNode* root, uint32_t fuel_level) {
 }
 
 uint8_t fuel_list_update_count(FuelListNode* root, uint32_t fuel_level, int8_t delta) {
-  FuelListNode* target = fuel_list_search(root, fuel_level);
-  if (!target) {
+  FuelListNode* t = fuel_list_search(root, fuel_level);
+  if (!t) {
     return 0;
   }
 
-  if (delta == -1 && target->count == 1) {
+  if (delta == -1 && t->count == 1) {
     return TO_BE_DELETED;
   } else {
-    target->count += delta;  
+    t->count += delta;  
     return NOT_BE_DELETED;
   }
 }
@@ -502,6 +502,38 @@ int32_t find_sorted_arr(uint32_t* arr, uint32_t t, int32_t low, int32_t high) {
   return -1;
 }
 
+int find_closest_sorted_arr(uint32_t* arr, int size, int t) {
+	if (t <= arr[0]) {
+		return 0;
+  }
+	if (t >= arr[size - 1]) {
+		return size - 1;
+  }
+
+	int i = 0, j = size, mid = 0;
+	while (i < j) {
+		mid = (i + j) / 2;
+
+		if (arr[mid] == t) {
+			return mid;
+    }
+
+		if (t < arr[mid]) {
+			if (mid > 0 && t > arr[mid - 1]) {
+				return mid;
+      }
+			j = mid;
+		} else {
+			if (mid < size - 1 && t < arr[mid + 1]) {
+				return mid+1;
+      }
+			i = mid + 1;
+		}
+	}
+
+	return mid;
+}
+
 //the caller must check that start and end stations do exist in the current map
 DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   DpArrayRes ret = {0, 0, {0, 0}};
@@ -521,26 +553,26 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
 #endif
 
   if (start_station < end_station) {
-  dp[arr_size-1].steps = 0;
-  dp[arr_size-1].max_reach = arr_size-1;
-  for(int idx=(arr_size-2); idx>=0; idx--){ //do not use uint32_t as this will go negative
-    uint32_t steps = filtered.fuels[idx];
+    dp[arr_size-1].steps = 0;
+    dp[arr_size-1].max_reach = arr_size-1;
+    for(int idx=(arr_size-2); idx>=0; idx--){ //do not use uint32_t as this will go negative
+      uint32_t steps = filtered.fuels[idx];
 
-    uint32_t min = INT_MAX;
-    int32_t max_reach = INT_MIN;
-    if(steps > 0){
-      for(uint32_t i=idx+1; i<arr_size; ++i){
-        if ((start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[i] && dp[i].steps <= min) ||
-            (start_station > end_station && steps >= filtered.stations[idx] && dp[i].steps <= min) ||
-            (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[i] && dp[i].steps <= min)) {
-          min = dp[i].steps;
-          max_reach = i;
+      uint32_t min = INT_MAX;
+      int32_t max_reach = INT_MIN;
+      if(steps > 0){
+        for(uint32_t i=idx+1; i<arr_size; ++i){
+          if ((start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[i] && dp[i].steps <= min) ||
+              (start_station > end_station && steps >= filtered.stations[idx] && dp[i].steps <= min) ||
+              (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[i] && dp[i].steps <= min)) {
+            min = dp[i].steps;
+            max_reach = i;
+          }
         }
       }
+      dp[idx].steps = min == INT_MAX ? min : min+1;
+      dp[idx].max_reach = max_reach == INT_MIN ? 0 : max_reach; //null pointer signals that max reach is station[idx] + fuels[idx] 
     }
-    dp[idx].steps = min == INT_MAX ? min : min+1;
-    dp[idx].max_reach = max_reach == INT_MIN ? 0 : max_reach; //null pointer signals that max reach is station[idx] + fuels[idx] 
-  }
   }
 
 #if (DEBUG_DP_ARRAY)
@@ -557,11 +589,6 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
     FilteredStationFuel forward_filter =
       get_stations_id_and_fuels_array(start_station, end_station, arr_size, 1);
     
-    // Dp* swapped_dp = calloc(arr_size, sizeof(Dp)); //create a reversed dp array to facilitate the mapping with the forward_filter.*
-    // uint32_t swapped_dp_idx = arr_size-1;
-    // for (uint32_t i=0; i<arr_size; i++) {
-    //   swapped_dp[swapped_dp_idx--] = dp[i];
-    // }
     Dp* forward_dp = calloc(arr_size, sizeof(Dp));
     for (uint32_t i=0; i<arr_size; i++) {
       forward_dp[i].steps = INT_MAX;
@@ -576,27 +603,12 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       //fill dp[x] = 1
       if (curr_dp_steps == 0) {
         //get the leftmost bound
-        int32_t m_r_station = forward_filter.stations[curr_idx];
         int32_t m_r_limit = forward_filter.stations[curr_idx] - forward_filter.fuels[curr_idx]; 
         if (m_r_limit < 0) {
           m_r_limit = 0;
         }
-        for (int32_t k=curr_idx-1; k>=0; k--) {
-          if (forward_filter.stations[k] >= m_r_limit) {
-            m_r_station = forward_filter.stations[k];
-          } else {
-            break;
-          }
-        }
-        int32_t step_left_limit = m_r_station;
-        // int32_t step_left_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
-        // int32_t step_left_limit = filtered.stations[swapped_dp[curr_idx].max_reach]; //this opt doesn't do that much
-        if (step_left_limit < 0) {
-          step_left_limit = 0;
-        }
         int32_t new_idx_rhs = -1;
-        //binary search won't return -1 by design
-        for (uint32_t i=find_sorted_arr(forward_filter.stations, step_left_limit, 0, arr_size-1); i<arr_size-1; i++) {
+        for (uint32_t i=find_closest_sorted_arr(forward_filter.stations, arr_size, m_r_limit); i<arr_size-1; i++) {
           if (new_idx_rhs == -1) {
             new_idx_rhs = i;
           }
@@ -616,32 +628,16 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
           if (forward_dp[i].steps != curr_dp_steps) {
             continue;
           }
-          int32_t m_r_station = forward_filter.stations[i];
           int32_t m_r_limit = forward_filter.stations[i] - forward_filter.fuels[i]; 
           if (m_r_limit < 0) {
             m_r_limit = 0;
           }
-          for (int32_t k=i-1; k>=0; k--) {
-            if (forward_filter.stations[k] >= m_r_limit) {
-              m_r_station = forward_filter.stations[k];
-            } else {
-              break;
-            }
-          }
-          int32_t step_left_limit = m_r_station;
-          // int32_t step_left_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
-          // int32_t step_left_limit = filtered.stations[swapped_dp[i].max_reach]; //this opt doesn't do that much
-          if (step_left_limit < 0) {
-            step_left_limit = 0;
-          }
-          if (step_left_limit < max_step_left_limit) {
-            max_step_left_limit = step_left_limit;
+          if (m_r_limit < max_step_left_limit) {
+            max_step_left_limit = m_r_limit;
           }
         }
-
         int32_t new_idx_rhs = -1;
-        //binary search won't return -1 by design
-        for (uint32_t i=find_sorted_arr(forward_filter.stations, max_step_left_limit, 0, arr_size-1); i<curr_idx_rhs; i++) {
+        for (uint32_t i=find_closest_sorted_arr(forward_filter.stations, arr_size, max_step_left_limit); i<curr_idx_rhs; i++) {
           if (new_idx_rhs == -1) {
             new_idx_rhs = i;
           }
@@ -650,25 +646,11 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
             if (forward_dp[j].steps != curr_dp_steps) {
               continue;
             }
-            int32_t m_r_station = forward_filter.stations[j];
             int32_t m_r_limit = forward_filter.stations[j] - forward_filter.fuels[j]; 
             if (m_r_limit < 0) {
               m_r_limit = 0;
             }
-            for (int32_t k=j-1; k>=0; k--) {
-              if (forward_filter.stations[k] >= m_r_limit) {
-                m_r_station = forward_filter.stations[k];
-              } else {
-                break;
-              }
-            }
-            int32_t step_left_limit = m_r_station;
-            // int32_t step_left_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
-            // int32_t step_left_limit = filtered.stations[swapped_dp[j].max_reach]; //this opt doesn't do that much
-            if (step_left_limit < 0) {
-              step_left_limit = 0;
-            }
-            if (forward_filter.stations[i] >= step_left_limit) {
+            if (forward_filter.stations[i] >= m_r_limit) {
               forward_dp[i].steps = curr_dp_steps + 1;
               forward_dp[i].max_reach = j;
               break; //found the min, exit
@@ -710,7 +692,6 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
     free(forward_dp);
     free(forward_filter.stations);
     free(forward_filter.fuels);
-    // free(swapped_dp);
   } else if (start_station < end_station && dp[0].steps != INT_MAX) {
     Dp* ptr = dp;
     printf("%d ", filtered.stations[0]);
