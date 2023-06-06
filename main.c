@@ -520,9 +520,10 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
   printf("\n");
 #endif
 
+  if (start_station < end_station) {
   dp[arr_size-1].steps = 0;
   dp[arr_size-1].max_reach = arr_size-1;
-  for(int idx=arr_size-2; idx>=0; idx--){ //do not use uint32_t as this will go negative
+  for(int idx=(arr_size-2); idx>=0; idx--){ //do not use uint32_t as this will go negative
     uint32_t steps = filtered.fuels[idx];
 
     uint32_t min = INT_MAX;
@@ -540,6 +541,7 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
     dp[idx].steps = min == INT_MAX ? min : min+1;
     dp[idx].max_reach = max_reach == INT_MIN ? 0 : max_reach; //null pointer signals that max reach is station[idx] + fuels[idx] 
   }
+  }
 
 #if (DEBUG_DP_ARRAY)
   for (uint32_t i=0; i<arr_size; ++i) {
@@ -551,15 +553,15 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
 #if USE_DP
   //other methods like bfs and dfs uses the dp_res to backtrack the best path indipendently from the route direction.
   //here with the dp table backtrack we need a turnaround in case start_station > end_station
-  if (start_station > end_station && dp[0].steps != INT_MAX) {
+  if (start_station > end_station) {
     FilteredStationFuel forward_filter =
       get_stations_id_and_fuels_array(start_station, end_station, arr_size, 1);
     
-    Dp* swapped_dp = calloc(arr_size, sizeof(Dp)); //create a reversed dp array to facilitate the mapping with the forward_filter.*
-    uint32_t swapped_dp_idx = arr_size-1;
-    for (uint32_t i=0; i<arr_size; i++) {
-      swapped_dp[swapped_dp_idx--] = dp[i];
-    }
+    // Dp* swapped_dp = calloc(arr_size, sizeof(Dp)); //create a reversed dp array to facilitate the mapping with the forward_filter.*
+    // uint32_t swapped_dp_idx = arr_size-1;
+    // for (uint32_t i=0; i<arr_size; i++) {
+    //   swapped_dp[swapped_dp_idx--] = dp[i];
+    // }
     Dp* forward_dp = calloc(arr_size, sizeof(Dp));
     for (uint32_t i=0; i<arr_size; i++) {
       forward_dp[i].steps = INT_MAX;
@@ -574,7 +576,20 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       //fill dp[x] = 1
       if (curr_dp_steps == 0) {
         //get the leftmost bound
-        int32_t step_left_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
+        int32_t m_r_station = forward_filter.stations[curr_idx];
+        int32_t m_r_limit = forward_filter.stations[curr_idx] - forward_filter.fuels[curr_idx]; 
+        if (m_r_limit < 0) {
+          m_r_limit = 0;
+        }
+        for (int32_t k=curr_idx-1; k>=0; k--) {
+          if (forward_filter.stations[k] >= m_r_limit) {
+            m_r_station = forward_filter.stations[k];
+          } else {
+            break;
+          }
+        }
+        int32_t step_left_limit = m_r_station;
+        // int32_t step_left_limit = swapped_dp[curr_idx].max_reach ? filtered.stations[swapped_dp[curr_idx].max_reach] : filtered.stations[curr_idx] - filtered.fuels[curr_idx];
         // int32_t step_left_limit = filtered.stations[swapped_dp[curr_idx].max_reach]; //this opt doesn't do that much
         if (step_left_limit < 0) {
           step_left_limit = 0;
@@ -601,7 +616,20 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
           if (forward_dp[i].steps != curr_dp_steps) {
             continue;
           }
-          int32_t step_left_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
+          int32_t m_r_station = forward_filter.stations[i];
+          int32_t m_r_limit = forward_filter.stations[i] - forward_filter.fuels[i]; 
+          if (m_r_limit < 0) {
+            m_r_limit = 0;
+          }
+          for (int32_t k=i-1; k>=0; k--) {
+            if (forward_filter.stations[k] >= m_r_limit) {
+              m_r_station = forward_filter.stations[k];
+            } else {
+              break;
+            }
+          }
+          int32_t step_left_limit = m_r_station;
+          // int32_t step_left_limit = swapped_dp[i].max_reach ? filtered.stations[swapped_dp[i].max_reach] : filtered.stations[i] - filtered.fuels[i];
           // int32_t step_left_limit = filtered.stations[swapped_dp[i].max_reach]; //this opt doesn't do that much
           if (step_left_limit < 0) {
             step_left_limit = 0;
@@ -622,7 +650,20 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
             if (forward_dp[j].steps != curr_dp_steps) {
               continue;
             }
-            int32_t step_left_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
+            int32_t m_r_station = forward_filter.stations[j];
+            int32_t m_r_limit = forward_filter.stations[j] - forward_filter.fuels[j]; 
+            if (m_r_limit < 0) {
+              m_r_limit = 0;
+            }
+            for (int32_t k=j-1; k>=0; k--) {
+              if (forward_filter.stations[k] >= m_r_limit) {
+                m_r_station = forward_filter.stations[k];
+              } else {
+                break;
+              }
+            }
+            int32_t step_left_limit = m_r_station;
+            // int32_t step_left_limit = swapped_dp[j].max_reach ? filtered.stations[swapped_dp[j].max_reach] : filtered.stations[j] - filtered.fuels[j];
             // int32_t step_left_limit = filtered.stations[swapped_dp[j].max_reach]; //this opt doesn't do that much
             if (step_left_limit < 0) {
               step_left_limit = 0;
@@ -639,33 +680,37 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
         curr_dp_steps++;
       }
     }
-  
-    //create the solution
-    int32_t* buff = calloc(arr_size, sizeof(uint32_t));
-    memset(buff, -1, sizeof(uint32_t) * arr_size);
-    uint32_t buff_idx = 0;
-    Dp* curr_ptr = forward_dp;
-    buff[buff_idx++] = forward_filter.stations[0];
 
-    while (curr_ptr < &forward_dp[arr_size-1]) {
-      //save the id
-      buff[buff_idx++] = forward_filter.stations[curr_ptr->max_reach];
-      //move to to the next ptr
-      curr_ptr = &forward_dp[curr_ptr->max_reach];
-    }
-    for (int32_t i=buff_idx-1; i>=0; i--) {
-      if (i == 0) {
-        printf("%d\n", buff[i]);
-      } else {
-        printf("%d ", buff[i]);
+    if (forward_dp[0].steps != INT_MAX) {
+      //create the solution
+      int32_t* buff = calloc(arr_size, sizeof(int32_t));
+      memset(buff, -1, sizeof(int32_t) * arr_size);
+      uint32_t buff_idx = 0;
+      Dp* curr_ptr = forward_dp;
+      buff[buff_idx++] = forward_filter.stations[0];
+
+      while (curr_ptr < &forward_dp[arr_size-1]) {
+        //save the id
+        buff[buff_idx++] = forward_filter.stations[curr_ptr->max_reach];
+        //move to to the next ptr
+        curr_ptr = &forward_dp[curr_ptr->max_reach];
       }
+      for (int32_t i=buff_idx-1; i>=0; i--) {
+        if (i == 0) {
+          printf("%d\n", buff[i]);
+        } else {
+          printf("%d ", buff[i]);
+        }
+      }
+      free(buff);
+    } else {
+      printf("%s\n", NP);
     }
 
-    free(buff);
     free(forward_dp);
     free(forward_filter.stations);
     free(forward_filter.fuels);
-    free(swapped_dp);
+    // free(swapped_dp);
   } else if (start_station < end_station && dp[0].steps != INT_MAX) {
     Dp* ptr = dp;
     printf("%d ", filtered.stations[0]);
@@ -686,6 +731,8 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       }
       ptr = &(dp[min_idx]);
     }
+  } else {
+    printf("%s\n", NP);
   }
 #endif
 
@@ -1211,6 +1258,7 @@ static inline void compute_path(const uint8_t* input_buf) {
   }
   //compute min path with dp and rebuild the path
   DpArrayRes dp_res = compute_min_path_dp(from, to);
+#if USE_BSF || USE_DFS
   if (dp_res.dp[0].steps != INT_MAX) {
 #if USE_BSF
     backtrack_bfs_best_route(dp_res, from < to);
@@ -1227,6 +1275,7 @@ static inline void compute_path(const uint8_t* input_buf) {
   } else {
     printf("%s\n", NP);
   }
+#endif
   free(dp_res.dp);
   free(dp_res.filtered.fuels);
   free(dp_res.filtered.stations);
