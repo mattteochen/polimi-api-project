@@ -323,8 +323,12 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
   } else {
     // Case 1: No child
     if (!root->left && !root->right) {
+      if (g_last_modified_station_node == root) {
+        g_last_modified_station_node = 0;
+      }
       fuel_list_free(root->fuels); 
       free(root);
+      root = 0;
       g_stations_size--;
       return NULL;
     }
@@ -332,8 +336,12 @@ BstStationsListNode* stations_list_remove_node(BstStationsListNode* root, int st
     // Case 2: One child
     if (root->left == NULL || root->right == NULL) {
       BstStationsListNode* temp = !root->left ? root->right : root->left;
+      if (g_last_modified_station_node == root) {
+        g_last_modified_station_node = 0;
+      }
       fuel_list_free(root->fuels); 
       free(root);
+      root = 0;
       g_stations_size--;
       return temp;
     }
@@ -1110,6 +1118,7 @@ static inline void add_car(const uint8_t* input_buf) {
     station_node = stations_list_search(g_stations_bst, station_id);
   }
   if (!station_node) {
+    g_last_modified_station_node = 0;
     printf("%s\n", NON_AGGIUNTA);
     return;
   }
@@ -1167,6 +1176,7 @@ static inline void remove_car(const uint8_t* input_buf) {
     station_node = stations_list_search(g_stations_bst, station_id);
   }
   if (!station_node) {
+    g_last_modified_station_node = 0;
     printf("%s\n", NON_ROTTAMATA);
     return;
   }
