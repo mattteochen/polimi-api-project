@@ -129,7 +129,7 @@ Str2IntErrNo str2int(int *out, char *s, int base) {
 
 // //This structure is used to store the all the fuels in a sorted manner for a given station
 
-FuelListNode* fuel_list_create_node(uint32_t fuel_level, uint32_t count) {
+static inline FuelListNode* fuel_list_create_node(uint32_t fuel_level, uint32_t count) {
   FuelListNode* node = calloc(1, sizeof(FuelListNode));
   node->fuel_level = fuel_level;
   node->count = count;
@@ -278,7 +278,7 @@ uint32_t* fuel_list_bst_to_array(FuelListNode* root) {
 
 //This station_id structure is used to store the g_stations_bst with the max available car autonomy in a sorted manner
 
-BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel, uint32_t count) {
+static inline BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel, uint32_t count) {
   BstStationsListNode* node = calloc(1, sizeof(BstStationsListNode));
   node->station_id = station_id;
   node->fuels = fuel_list_insert_node(node->fuels, max_fuel, count);
@@ -287,7 +287,10 @@ BstStationsListNode* stations_list_create_node(int station_id, uint32_t max_fuel
 }
 
 BstStationsListNode* stations_list_insert_node(BstStationsListNode* root, uint32_t station_id, uint32_t max_fuel, uint32_t count) {
-  if (root == NULL) {
+  if (root && root->station_id == station_id) {
+    return root;
+  }
+  if (!root) {
     g_stations_size++;
     return stations_list_create_node(station_id, max_fuel, count);
   }
@@ -564,6 +567,10 @@ DpArrayRes compute_min_path_dp(int start_station, int end_station) {
       int32_t max_reach = INT_MIN;
       if(steps > 0){
         for(uint32_t i=idx+1; i<arr_size; ++i){
+          if ((start_station < end_station && filtered.stations[idx] + steps < filtered.stations[i]) ||
+              (start_station > end_station && steps < filtered.stations[idx] && filtered.stations[idx] - steps > filtered.stations[i])) {
+            break;
+          }
           if ((start_station < end_station && filtered.stations[idx] + steps >= filtered.stations[i] && dp[i].steps <= min) ||
               (start_station > end_station && steps >= filtered.stations[idx] && dp[i].steps <= min) ||
               (start_station > end_station && filtered.stations[idx] - steps <= filtered.stations[i] && dp[i].steps <= min)) {
@@ -973,11 +980,6 @@ static inline void add_station(const uint8_t* input_buf) {
   printf("station: %d\n", station_id);
 #endif
 
-  if (stations_list_search(g_stations_bst, station_id)) {
-    printf("%s\n", NON_AGGIUNTA);
-    return;
-  }
-
   //get car nums
   storage_idx = 0;
   while (input_buf[idx] != ' ' && input_buf[idx] != '\n' && input_buf[idx] != '\0') {
@@ -992,10 +994,15 @@ static inline void add_station(const uint8_t* input_buf) {
 #endif
 
   if (cars == 0) {
+    uint32_t prev_count = g_stations_size;
     g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, 0, 1);
-    printf("%s\n", AGGIUNTA);
-    //signal the map has changed
-    g_map_changed = 1;
+    if (g_stations_size == prev_count) {
+      printf("%s/n", NON_AGGIUNTA);
+    } else {
+      printf("%s\n", AGGIUNTA);
+      //signal the map has changed
+      g_map_changed = 1;
+    }
     return;
   }
 
@@ -1022,7 +1029,13 @@ static inline void add_station(const uint8_t* input_buf) {
   for (uint32_t i=0; i<cars; i++) {
     //first fuel ? if yes add station and fuel
     if (i == 0) {
+      uint32_t prev_count = g_stations_size;
       g_stations_bst = stations_list_insert_node(g_stations_bst, station_id, fuels[i], 1);
+      if (prev_count == g_stations_size) {
+        printf("%s\n", NON_AGGIUNTA);
+        free(fuels);
+        return;
+      }
     //else update the node fuel values
     } else {
       if (fuels[i] == fuels[i-1]) {
@@ -1224,15 +1237,6 @@ static inline void compute_path(const uint8_t* input_buf) {
   //early return if equal
   if(from == to) {
     printf("%d\n", from);
-    return;
-  }
-
-  //requested stations do exist by definiton (?)
-  //fist compute the path existance
-  BstStationsListNode *start_station_node = stations_list_search(g_stations_bst, from);
-  BstStationsListNode *end_station_node = stations_list_search(g_stations_bst, to);
-  if (!start_station_node || !end_station_node) {
-    printf("station not found %s\n", NP);
     return;
   }
 
